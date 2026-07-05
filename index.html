@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Aquerra Mechanics Prototype</title>
+  </head>
+  <body>
+    <div id="app">
+      <main id="game-shell">
+        <section id="game-root" aria-label="Aquerra mechanics prototype"></section>
+        <aside id="controls">
+          <h1>Aquerra Lab</h1>
+          <p class="note">
+            The jet inventory is the “Jet stock” panel inside the game canvas, on the right of the
+            grid. Click a stock type to choose a pump. Left-click a wall/water edge to place it.
+            Left-click a pump to delete it and start recharge. Right-click a pump to restart it.
+            Right-click or shift-click water to move the tuber. Alt-click water to move the goal.
+          </p>
+
+          <label>
+            Water columns
+            <input id="gridColumns" type="range" min="1" max="10" value="10" step="1" />
+            <output id="gridColumnsValue">10</output>
+          </label>
+
+          <label>
+            Water rows
+            <input id="gridRows" type="range" min="1" max="10" value="8" step="1" />
+            <output id="gridRowsValue">8</output>
+          </label>
+
+          <label>
+            New jet power
+            <input id="jetPower" type="range" min="0" max="18" value="8" step="0.25" />
+            <output id="jetPowerValue">8.00</output>
+          </label>
+
+          <label>
+            Power decay/sec
+            <input id="powerDecay" type="range" min="0" max="5" value="0.45" step="0.05" />
+            <output id="powerDecayValue">0.45</output>
+          </label>
+
+          <label>
+            Decay easing
+            <input id="decayEase" type="range" min="0.5" max="4" value="1.8" step="0.05" />
+            <output id="decayEaseValue">1.80</output>
+          </label>
+
+          <label>
+            Jet range
+            <input id="jetRange" type="range" min="1" max="10" value="7" step="0.25" />
+            <output id="jetRangeValue">7.00</output>
+          </label>
+
+          <label>
+            Range decay/sec
+            <input id="rangeDecay" type="range" min="0" max="5" value="0.25" step="0.05" />
+            <output id="rangeDecayValue">0.25</output>
+          </label>
+
+          <label>
+            Stream width
+            <input id="streamWidth" type="range" min="0.3" max="4" value="1.4" step="0.1" />
+            <output id="streamWidthValue">1.40</output>
+          </label>
+
+          <label>
+            Width decay/sec
+            <input id="widthDecay" type="range" min="0" max="5" value="0.35" step="0.05" />
+            <output id="widthDecayValue">0.35</output>
+          </label>
+
+          <label>
+            Water drag
+            <input id="waterDrag" type="range" min="0.1" max="5" value="1.2" step="0.05" />
+            <output id="waterDragValue">1.20</output>
+          </label>
+
+          <label>
+            Wall bounciness
+            <input id="bounciness" type="range" min="0" max="1" value="0.55" step="0.05" />
+            <output id="bouncinessValue">0.55</output>
+          </label>
+
+          <label class="checkbox-row">
+            <span>Show debug overlay</span>
+            <input id="showDebugOverlay" type="checkbox" checked />
+          </label>
+
+          <section class="preset-panel" aria-labelledby="presetTitle">
+            <div class="section-title" id="presetTitle">Quick presets</div>
+            <div class="preset-grid">
+              <button type="button" data-preset="gentle">Gentle stream</button>
+              <button type="button" data-preset="blast">Strong blast</button>
+              <button type="button" data-preset="wide">Wide push</button>
+              <button type="button" data-preset="bouncy">Bouncy lab</button>
+            </div>
+          </section>
+
+          <section class="selected-jet" aria-labelledby="selectedJetTitle">
+            <div class="section-title" id="selectedJetTitle">Selected jet</div>
+            <p id="selectedJetStatus" class="note compact">No jet selected.</p>
+            <div class="button-row">
+              <button id="applySelectedJet" type="button">Apply sliders</button>
+              <button id="deleteSelectedJet" type="button">Delete jet</button>
+            </div>
+          </section>
+
+          <section class="range-editor" aria-labelledby="rangeEditorTitle">
+            <div class="section-title" id="rangeEditorTitle">Slider ranges</div>
+            <p class="note compact">Change min/max for tuning sliders. Water rows/columns stay 1–10.</p>
+            <div id="rangeEditorFields"></div>
+            <button id="resetSliderRanges" type="button">Reset slider ranges</button>
+          </section>
+
+          <div class="button-row">
+            <button id="resetTuber" type="button">Reset tuber</button>
+            <button id="clearJets" type="button">Clear jets</button>
+            <button id="resetShape" type="button">Reset shape</button>
+            <button id="resetGoal" type="button">Reset goal</button>
+          </div>
+
+          <div id="readout" aria-live="polite"></div>
+        </aside>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
