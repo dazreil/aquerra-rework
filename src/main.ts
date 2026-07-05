@@ -99,7 +99,6 @@ type GeneratedLevel = {
   mask: Uint8Array;
   start: Cell;
   goal: Cell;
-  starterJets: Array<JetMount & { presetId: PresetId }>;
   stats: {
     attempts: number;
     rooms: number;
@@ -629,14 +628,6 @@ class PrototypeScene extends Phaser.Scene {
     this.tuber.velocity = { x: 0, y: 0 };
     this.goal = { x: level.goal.x + 0.5, y: level.goal.y + 0.5 };
     this.goalReached = false;
-
-    for (const starter of level.starterJets) {
-      if (!this.spendInventory(starter.presetId)) {
-        continue;
-      }
-
-      this.jets.push(makeJet(starter, starter.presetId));
-    }
 
     console.info('[Aquerra generator]', level.name, level.stats);
   }
@@ -1574,7 +1565,6 @@ function generatePuzzleLevelOnce(internalSeed: number, displaySeed: number, atte
     return bfs[cell.y * W + cell.x] > bfs[best.y * W + best.x] ? cell : best;
   }, leftStart);
   const slots = jetSlotsFromMask(mask, W, H);
-  const starterJets = chooseStarterJets(slots, leftStart, goalWater, rng);
   const checksum = checksumMask(mask);
   const name = seededLevelName(displaySeed);
 
@@ -1584,7 +1574,6 @@ function generatePuzzleLevelOnce(internalSeed: number, displaySeed: number, atte
     mask,
     start: { x: leftStart.x + 1, y: leftStart.y + 1 },
     goal: { x: goalWater.x + 1, y: goalWater.y + 1 },
-    starterJets,
     stats: {
       attempts,
       rooms: rooms.length,
@@ -1761,41 +1750,6 @@ function jetSlotsFromMask(mask: Uint8Array, W: number, H: number): JetMount[] {
     }
   }
   return slots;
-}
-
-function chooseStarterJets(
-  slots: JetMount[],
-  start: Cell,
-  goal: Cell,
-  rng: ReturnType<typeof createRng>
-): Array<JetMount & { presetId: PresetId }> {
-  const goalVector = { x: goal.x - start.x, y: goal.y - start.y };
-  const scored = slots
-    .map((slot) => {
-      const edge = jetEdgePoint(slot);
-      const dir = directionVectors[slot.direction];
-      const distanceToStart = Math.hypot(edge.x - (start.x + 1.5), edge.y - (start.y + 1.5));
-      const dot = dir.x * goalVector.x + dir.y * goalVector.y;
-      return { slot, score: dot - distanceToStart * 0.35 + rng.float(-0.25, 0.25) };
-    })
-    .sort((a, b) => b.score - a.score);
-  const used = new Set<string>();
-  const presets: PresetId[] = ['gentle', 'wide', 'blast'];
-  const starters: Array<JetMount & { presetId: PresetId }> = [];
-
-  for (const item of scored) {
-    const key = `${item.slot.wallX},${item.slot.wallY}`;
-    if (used.has(key)) {
-      continue;
-    }
-    used.add(key);
-    starters.push({ ...item.slot, presetId: presets[starters.length] ?? 'gentle' });
-    if (starters.length >= 3) {
-      break;
-    }
-  }
-
-  return starters;
 }
 
 function checksumMask(mask: Uint8Array): number {
