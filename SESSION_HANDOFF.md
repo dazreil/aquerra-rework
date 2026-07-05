@@ -89,10 +89,16 @@ Do not assume globally installed `npm`/`pnpm` exists. Use `./run-dev.sh` or the 
 
 Latest Netlify deploy updated on 2026-07-05:
 
-- Site URL: `https://glittering-seahorse-19f7fb.netlify.app`
+- Canonical synced site URL: `https://aquerra.netlify.app`
 - Site ID: `f74c3bf2-b8e6-4acd-806c-e2c4fffc602f`
 - Deploy ID: `6a4a83f8b152603168a57199`
 - Status check: HTTP 200 after authenticated deploy.
+
+Procedural generator test deploy created on 2026-07-05:
+
+- Site URL: `https://ubiquitous-monstera-b6d72a.netlify.app`
+- Anonymous deploy password reported by Netlify: `My-Drop-Site`
+- Status check: HTTP 401 password gate, expected for anonymous deploy.
 
 Previous anonymous deploy:
 
