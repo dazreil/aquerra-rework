@@ -133,6 +133,7 @@ const cornerSlideAttempts = 7;
 const cornerSlideVelocityKeep = 0.35;
 const cornerSlideVelocityIntent = 0.04;
 const cornerSlideForceIntent = 0.25;
+const allowManualShapeEditing = false;
 const canvasWidth = origin.x * 2 + boardPixelWidth + inventoryGap + inventoryWidth;
 const canvasHeight = origin.y * 2 + boardPixelHeight;
 
@@ -465,6 +466,8 @@ class PrototypeScene extends Phaser.Scene {
   private selectedPreset: PresetId = 'gentle';
   private goal = centeredGoalPosition();
   private goalReached = false;
+  private currentSeed = 1337;
+  private winQueued = false;
 
   constructor() {
     super('PrototypeScene');
@@ -490,7 +493,7 @@ class PrototypeScene extends Phaser.Scene {
         return;
       }
 
-      const shapeButton = hitShapeButton(pointer.x, pointer.y);
+      const shapeButton = allowManualShapeEditing ? hitShapeButton(pointer.x, pointer.y) : null;
 
       if (shapeButton) {
         this.updateShapeFromButton(shapeButton);
@@ -552,6 +555,7 @@ class PrototypeScene extends Phaser.Scene {
       const seed = (event as CustomEvent<number>).detail;
       this.applyGeneratedLevel(generatePuzzleLevel(seed));
     });
+    this.applyGeneratedLevel(generatePuzzleLevel(this.currentSeed));
   }
 
   update(_time: number, deltaMs: number): void {
@@ -608,6 +612,8 @@ class PrototypeScene extends Phaser.Scene {
 
   private applyGeneratedLevel(level: GeneratedLevel): void {
     customWaterMask = level.mask;
+    this.currentSeed = level.seed;
+    this.winQueued = false;
     currentLevelName = level.name;
     currentGeneratorStats = `Seed ${level.seed} · ${level.stats.waterTiles} water · ${level.stats.jetSlots} jet slots · ${level.stats.loops} loop · ${level.stats.genMs.toFixed(1)}ms`;
 
@@ -789,6 +795,26 @@ class PrototypeScene extends Phaser.Scene {
     this.moveAxis('x', nextPosition.x);
     this.moveAxis('y', nextPosition.y);
     this.goalReached = Math.hypot(this.tuber.position.x - this.goal.x, this.tuber.position.y - this.goal.y) < 0.45;
+    if (this.goalReached && !this.winQueued) {
+      this.queueWinAndNextLevel();
+    }
+  }
+
+  private queueWinAndNextLevel(): void {
+    this.winQueued = true;
+    currentGeneratorStats = `You won! Generating basin ${this.currentSeed + 1}...`;
+    if (generatorStatus) {
+      generatorStatus.textContent = currentGeneratorStats;
+    }
+
+    this.time.delayedCall(1200, () => {
+      const nextSeed = this.currentSeed + 1;
+      const seedInput = document.querySelector<HTMLInputElement>('#levelSeed');
+      if (seedInput) {
+        seedInput.value = String(nextSeed);
+      }
+      this.applyGeneratedLevel(generatePuzzleLevel(nextSeed));
+    });
   }
 
   private moveAxis(axis: 'x' | 'y', value: number): void {
@@ -861,8 +887,10 @@ class PrototypeScene extends Phaser.Scene {
     this.drawBackdrop();
     this.drawInventory();
     this.drawGrid();
-    this.drawWallControls();
-    this.drawShapeControlHover();
+    if (allowManualShapeEditing) {
+      this.drawWallControls();
+      this.drawShapeControlHover();
+    }
     this.drawJetMountHints();
     this.drawGoal();
     this.drawJetPlacementPreview();

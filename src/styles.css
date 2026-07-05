@@ -154,6 +154,10 @@ button:hover {
   background: #222638;
 }
 
+.hidden-config {
+  display: none;
+}
+
 .preset-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
