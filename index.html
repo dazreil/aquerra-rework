@@ -89,6 +89,23 @@
             <input id="showDebugOverlay" type="checkbox" checked />
           </label>
 
+          <section class="generator-panel" aria-labelledby="generatorTitle">
+            <div class="section-title" id="generatorTitle">Procedural basin</div>
+            <p class="note compact">
+              Seeded generator creates an irregular water basin, start, goal, valid edge jets and a
+              few starter pumps.
+            </p>
+            <label>
+              Seed
+              <input id="levelSeed" type="number" value="1337" step="1" />
+            </label>
+            <div class="button-row">
+              <button id="generateLevel" type="button">Generate level</button>
+              <button id="randomSeed" type="button">Dice seed</button>
+            </div>
+            <p id="generatorStatus" class="note compact">Manual editor mode.</p>
+          </section>
+
           <section class="preset-panel" aria-labelledby="presetTitle">
             <div class="section-title" id="presetTitle">Quick presets</div>
             <div class="preset-grid">

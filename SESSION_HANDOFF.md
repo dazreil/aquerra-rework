@@ -61,8 +61,14 @@ CI=true PATH=/Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/depen
   - Main sliders for tuning.
   - Slider range editor for tuning slider min/max values.
   - Quick preset buttons.
+  - Procedural basin generator with seed/dice controls.
   - Selected jet controls.
   - Reset tuber / clear jets / reset shape / reset goal.
+- Procedural generator:
+  - Deterministic seeded 10×10 basin generator.
+  - Creates irregular water masks, start, goal, edge jet slots, and 1–3 starter jets.
+  - Runs reachability/checksum validation and reports stats in the side panel/readout.
+  - Generated masks can be cleared by manual wall-arrow edits.
 
 ## Important files
 

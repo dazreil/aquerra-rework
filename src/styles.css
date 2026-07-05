@@ -135,12 +135,23 @@ button:hover {
   border-color: #7cecff;
 }
 
+.generator-panel,
 .preset-panel,
 .selected-jet {
   padding: 12px;
   border: 1px solid #353b51;
   border-radius: 12px;
   background: #10131d;
+}
+
+.generator-panel input[type="number"] {
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #4a526d;
+  border-radius: 10px;
+  color: #f4f7fb;
+  background: #222638;
 }
 
 .preset-grid {

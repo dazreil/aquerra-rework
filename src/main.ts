@@ -15,6 +15,11 @@ type Rect = {
   height: number;
 };
 
+type Cell = {
+  x: number;
+  y: number;
+};
+
 type ShapeButton = {
   type: 'rowWidth' | 'columnHeight';
   index: number;
@@ -82,6 +87,31 @@ type InventorySlot = {
   rechargeTimers: number[];
 };
 
+type LevelRoom = Cell & {
+  id: number;
+  rx: number;
+  ry: number;
+};
+
+type GeneratedLevel = {
+  seed: number;
+  name: string;
+  mask: Uint8Array;
+  start: Cell;
+  goal: Cell;
+  starterJets: Array<JetMount & { presetId: PresetId }>;
+  stats: {
+    attempts: number;
+    rooms: number;
+    waterTiles: number;
+    reachableWater: number;
+    jetSlots: number;
+    loops: number;
+    checksum: number;
+    genMs: number;
+  };
+};
+
 const maxWaterColumns = 10;
 const maxWaterRows = 10;
 const cellSize = 56;
@@ -109,6 +139,9 @@ const canvasHeight = origin.y * 2 + boardPixelHeight;
 // These are WATER counts. Wall cells are generated around the resulting water shape.
 const rowWidths = Array.from({ length: maxWaterRows }, () => maxWaterColumns);
 const columnHeights = Array.from({ length: maxWaterColumns }, () => maxWaterRows);
+let customWaterMask: Uint8Array | null = null;
+let currentLevelName = 'Manual basin';
+let currentGeneratorStats = 'Manual editor mode.';
 
 const directionVectors: Record<Direction, Vec2> = {
   N: { x: 0, y: -1 },
@@ -199,6 +232,7 @@ const jetPresets: Record<PresetId, JetPreset> = {
 
 const readout = document.querySelector<HTMLDivElement>('#readout');
 const selectedJetStatus = document.querySelector<HTMLParagraphElement>('#selectedJetStatus');
+const generatorStatus = document.querySelector<HTMLParagraphElement>('#generatorStatus');
 
 const tunableSliderIds = [
   'jetPower',
@@ -282,6 +316,31 @@ function setupPresets(): void {
 
       applyPresetToSliders(presetId);
     });
+  });
+}
+
+function setupGeneratorControls(): void {
+  const seedInput = document.querySelector<HTMLInputElement>('#levelSeed');
+  const generateButton = document.querySelector<HTMLButtonElement>('#generateLevel');
+  const randomSeedButton = document.querySelector<HTMLButtonElement>('#randomSeed');
+
+  if (!seedInput || !generateButton || !randomSeedButton) {
+    throw new Error('Missing procedural generator controls');
+  }
+
+  const dispatchGenerate = () => {
+    const seed = Number(seedInput.value);
+    window.dispatchEvent(
+      new CustomEvent('aquerra:generate-level', {
+        detail: Number.isFinite(seed) ? Math.trunc(seed) : 1337
+      })
+    );
+  };
+
+  generateButton.addEventListener('click', dispatchGenerate);
+  randomSeedButton.addEventListener('click', () => {
+    seedInput.value = String(Math.floor(Math.random() * 999_999_999));
+    dispatchGenerate();
   });
 }
 
@@ -383,6 +442,7 @@ bindRange('bounciness');
 bindCheckbox('showDebugOverlay');
 setupRangeEditor();
 setupPresets();
+setupGeneratorControls();
 
 class PrototypeScene extends Phaser.Scene {
   private readonly tuber = {
@@ -482,14 +542,16 @@ class PrototypeScene extends Phaser.Scene {
 
     document.querySelector('#resetTuber')?.addEventListener('click', () => this.resetTuber());
     document.querySelector('#clearJets')?.addEventListener('click', () => {
-      for (let i = this.jets.length - 1; i >= 0; i -= 1) {
-        this.removeJetAt(i, true);
-      }
+      this.clearJets(true);
     });
     document.querySelector('#resetShape')?.addEventListener('click', () => this.resetShape());
     document.querySelector('#resetGoal')?.addEventListener('click', () => this.resetGoal());
     document.querySelector('#applySelectedJet')?.addEventListener('click', () => this.applySlidersToSelectedJet());
     document.querySelector('#deleteSelectedJet')?.addEventListener('click', () => this.deleteSelectedJet());
+    window.addEventListener('aquerra:generate-level', (event) => {
+      const seed = (event as CustomEvent<number>).detail;
+      this.applyGeneratedLevel(generatePuzzleLevel(seed));
+    });
   }
 
   update(_time: number, deltaMs: number): void {
@@ -525,6 +587,13 @@ class PrototypeScene extends Phaser.Scene {
   }
 
   private resetShape(): void {
+    customWaterMask = null;
+    currentLevelName = 'Manual basin';
+    currentGeneratorStats = 'Manual editor mode.';
+    if (generatorStatus) {
+      generatorStatus.textContent = currentGeneratorStats;
+    }
+
     for (let y = 0; y < maxWaterRows; y += 1) {
       rowWidths[y] = controls.gridColumns;
     }
@@ -535,6 +604,35 @@ class PrototypeScene extends Phaser.Scene {
 
     normalizeShape();
     this.keepEntitiesInsideShape();
+  }
+
+  private applyGeneratedLevel(level: GeneratedLevel): void {
+    customWaterMask = level.mask;
+    currentLevelName = level.name;
+    currentGeneratorStats = `Seed ${level.seed} · ${level.stats.waterTiles} water · ${level.stats.jetSlots} jet slots · ${level.stats.loops} loop · ${level.stats.genMs.toFixed(1)}ms`;
+
+    if (generatorStatus) {
+      generatorStatus.textContent = `${level.name} — ${currentGeneratorStats}`;
+    }
+
+    syncShapeExtentsFromMask(level.mask);
+    this.clearJets(false);
+    resetInventory(this.inventory);
+    this.selectedJet = null;
+    this.tuber.position = { x: level.start.x + 0.5, y: level.start.y + 0.5 };
+    this.tuber.velocity = { x: 0, y: 0 };
+    this.goal = { x: level.goal.x + 0.5, y: level.goal.y + 0.5 };
+    this.goalReached = false;
+
+    for (const starter of level.starterJets) {
+      if (!this.spendInventory(starter.presetId)) {
+        continue;
+      }
+
+      this.jets.push(makeJet(starter, starter.presetId));
+    }
+
+    console.info('[Aquerra generator]', level.name, level.stats);
   }
 
   private setupInventoryText(): void {
@@ -600,7 +698,22 @@ class PrototypeScene extends Phaser.Scene {
     slot.rechargeTimers.push(inventoryRechargeSeconds);
   }
 
+  private clearJets(recharge: boolean): void {
+    for (let i = this.jets.length - 1; i >= 0; i -= 1) {
+      this.removeJetAt(i, recharge);
+    }
+  }
+
   private updateShapeFromButton(button: ShapeButton): void {
+    if (customWaterMask) {
+      customWaterMask = null;
+      currentLevelName = 'Manual edit from generated basin';
+      currentGeneratorStats = 'Generated mask cleared by wall arrow edit.';
+      if (generatorStatus) {
+        generatorStatus.textContent = currentGeneratorStats;
+      }
+    }
+
     if (button.type === 'rowWidth') {
       rowWidths[button.index] += button.delta;
       normalizeShape();
@@ -1155,6 +1268,8 @@ class PrototypeScene extends Phaser.Scene {
 
     readout.innerHTML = `
       <strong>Debug</strong>
+      <span>Level: ${currentLevelName}</span>
+      <span>Generator: ${currentGeneratorStats}</span>
       <span>Water max: ${controls.gridColumns} × ${controls.gridRows}</span>
       <span>Water / wall: ${waterTiles} / ${wallTiles}</span>
       <span>Water row widths: ${rowShape}</span>
@@ -1260,6 +1375,11 @@ function easedDecay(age: number, rate: number, ease = controls.decayEase): numbe
 }
 
 function normalizeShape(): void {
+  if (customWaterMask) {
+    syncShapeExtentsFromMask(customWaterMask);
+    return;
+  }
+
   for (let y = 0; y < maxWaterRows; y += 1) {
     rowWidths[y] = Math.round(clamp(rowWidths[y], 1, controls.gridColumns));
   }
@@ -1283,6 +1403,10 @@ function isWaterCell(x: number, y: number): boolean {
 
   if (waterX < 0 || waterY < 0 || waterX >= controls.gridColumns || waterY >= controls.gridRows) {
     return false;
+  }
+
+  if (customWaterMask) {
+    return customWaterMask[waterY * maxWaterColumns + waterX] === 1;
   }
 
   return waterX < rowWidths[waterY] && waterY < columnHeights[waterX];
@@ -1316,6 +1440,351 @@ function createInventory(): Record<PresetId, InventorySlot> {
     wide: { available: inventoryStockMax, rechargeTimers: [] },
     bouncy: { available: inventoryStockMax, rechargeTimers: [] }
   };
+}
+
+function resetInventory(inventory: Record<PresetId, InventorySlot>): void {
+  for (const presetId of presetIds) {
+    inventory[presetId].available = inventoryStockMax;
+    inventory[presetId].rechargeTimers.length = 0;
+  }
+}
+
+function syncShapeExtentsFromMask(mask: Uint8Array): void {
+  for (let y = 0; y < maxWaterRows; y += 1) {
+    let width = 1;
+    for (let x = 0; x < maxWaterColumns; x += 1) {
+      if (mask[y * maxWaterColumns + x] === 1) {
+        width = Math.max(width, x + 1);
+      }
+    }
+    rowWidths[y] = clamp(width, 1, controls.gridColumns);
+  }
+
+  for (let x = 0; x < maxWaterColumns; x += 1) {
+    let height = 1;
+    for (let y = 0; y < maxWaterRows; y += 1) {
+      if (mask[y * maxWaterColumns + x] === 1) {
+        height = Math.max(height, y + 1);
+      }
+    }
+    columnHeights[x] = clamp(height, 1, controls.gridRows);
+  }
+}
+
+function generatePuzzleLevel(seed: number): GeneratedLevel {
+  const startTime = performance.now();
+  let lastLevel: GeneratedLevel | null = null;
+
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const level = generatePuzzleLevelOnce(seed + attempt * 9973, seed, attempt, startTime);
+    lastLevel = level;
+
+    if (level.stats.reachableWater === level.stats.waterTiles && level.stats.jetSlots >= 6) {
+      const a = generatePuzzleLevelOnce(seed + attempt * 9973, seed, attempt, startTime);
+      const b = generatePuzzleLevelOnce(seed + attempt * 9973, seed, attempt, startTime);
+      const deterministic = a.stats.checksum === level.stats.checksum && b.stats.checksum === level.stats.checksum;
+      console.info('[Aquerra generator tests]', {
+        reachable: `${level.stats.reachableWater}/${level.stats.waterTiles}`,
+        deterministic,
+        checksum: level.stats.checksum,
+        jetSlots: level.stats.jetSlots,
+        loops: level.stats.loops,
+        genMs: level.stats.genMs.toFixed(2)
+      });
+      return level;
+    }
+  }
+
+  return lastLevel ?? generatePuzzleLevelOnce(seed, seed, 1, startTime);
+}
+
+function generatePuzzleLevelOnce(internalSeed: number, displaySeed: number, attempts: number, startTime: number): GeneratedLevel {
+  const rng = createRng(internalSeed);
+  const W = controls.gridColumns;
+  const H = controls.gridRows;
+  const mask = new Uint8Array(maxWaterColumns * maxWaterRows);
+  const roomTarget = clamp(Math.round((W * H) / 18), 4, 7);
+  const rooms: LevelRoom[] = [];
+
+  rooms.push({ id: 0, x: clamp(rng.int(1, 2), 0, W - 1), y: rng.int(1, Math.max(1, H - 2)), rx: 2, ry: 2 });
+  rooms.push({ id: 1, x: clamp(W - 2 - rng.int(0, 1), 0, W - 1), y: rng.int(1, Math.max(1, H - 2)), rx: 2, ry: 2 });
+
+  for (let i = 2; i < roomTarget; i += 1) {
+    rooms.push({
+      id: i,
+      x: rng.int(1, Math.max(1, W - 2)),
+      y: rng.int(1, Math.max(1, H - 2)),
+      rx: rng.int(1, 2),
+      ry: rng.int(1, 2)
+    });
+  }
+
+  for (const room of rooms) {
+    carveBlob(mask, W, H, room, rng);
+  }
+
+  const sortedRooms = [...rooms].sort((a, b) => a.x - b.x || a.y - b.y);
+  for (let i = 1; i < sortedRooms.length; i += 1) {
+    carveChannel(mask, W, H, sortedRooms[i - 1], sortedRooms[i], rng, i <= 2 ? 2 : 1);
+  }
+
+  let loops = 0;
+  if (sortedRooms.length >= 4) {
+    const a = sortedRooms[rng.int(0, Math.floor(sortedRooms.length / 2))];
+    const b = sortedRooms[rng.int(Math.ceil(sortedRooms.length / 2), sortedRooms.length - 1)];
+    carveChannel(mask, W, H, a, b, rng, 1);
+    loops = 1;
+  }
+
+  roughenMask(mask, W, H, rng);
+
+  const water = waterCellsFromMask(mask, W, H);
+  const leftStart = water.reduce((best, cell) => (cell.x < best.x || (cell.x === best.x && cell.y < best.y) ? cell : best), water[0]);
+  const bfs = floodMask(mask, W, H, leftStart);
+  const reachable = water.filter((cell) => bfs[cell.y * W + cell.x] >= 0);
+  const goalWater = reachable.reduce((best, cell) => {
+    return bfs[cell.y * W + cell.x] > bfs[best.y * W + best.x] ? cell : best;
+  }, leftStart);
+  const slots = jetSlotsFromMask(mask, W, H);
+  const starterJets = chooseStarterJets(slots, leftStart, goalWater, rng);
+  const checksum = checksumMask(mask);
+  const name = seededLevelName(displaySeed);
+
+  return {
+    seed: displaySeed,
+    name,
+    mask,
+    start: { x: leftStart.x + 1, y: leftStart.y + 1 },
+    goal: { x: goalWater.x + 1, y: goalWater.y + 1 },
+    starterJets,
+    stats: {
+      attempts,
+      rooms: rooms.length,
+      waterTiles: water.length,
+      reachableWater: reachable.length,
+      jetSlots: slots.length,
+      loops,
+      checksum,
+      genMs: performance.now() - startTime
+    }
+  };
+}
+
+function createRng(seed: number): {
+  float: (min?: number, max?: number) => number;
+  int: (min: number, max: number) => number;
+  pick: <T>(items: readonly T[]) => T;
+  chance: (p: number) => boolean;
+} {
+  let state = seed >>> 0;
+  const next = () => {
+    state += 0x6d2b79f5;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  return {
+    float: (min = 0, max = 1) => min + next() * (max - min),
+    int: (min, max) => Math.floor(min + next() * (max - min + 1)),
+    pick: (items) => items[Math.floor(next() * items.length)],
+    chance: (p) => next() < p
+  };
+}
+
+function carveBlob(
+  mask: Uint8Array,
+  W: number,
+  H: number,
+  room: LevelRoom,
+  rng: ReturnType<typeof createRng>
+): void {
+  for (let y = room.y - room.ry - 1; y <= room.y + room.ry + 1; y += 1) {
+    for (let x = room.x - room.rx - 1; x <= room.x + room.rx + 1; x += 1) {
+      if (x < 0 || y < 0 || x >= W || y >= H) {
+        continue;
+      }
+
+      const nx = (x - room.x) / Math.max(1, room.rx + rng.float(-0.2, 0.45));
+      const ny = (y - room.y) / Math.max(1, room.ry + rng.float(-0.2, 0.45));
+      if (nx * nx + ny * ny <= 1.25 || rng.chance(0.12)) {
+        mask[y * maxWaterColumns + x] = 1;
+      }
+    }
+  }
+}
+
+function carveChannel(
+  mask: Uint8Array,
+  W: number,
+  H: number,
+  a: Cell,
+  b: Cell,
+  rng: ReturnType<typeof createRng>,
+  width: number
+): void {
+  const horizontalFirst = rng.chance(0.5);
+  const stamp = (x: number, y: number) => {
+    for (let oy = -Math.floor(width / 2); oy <= Math.floor(width / 2); oy += 1) {
+      for (let ox = -Math.floor(width / 2); ox <= Math.floor(width / 2); ox += 1) {
+        const px = x + ox;
+        const py = y + oy;
+        if (px >= 0 && py >= 0 && px < W && py < H) {
+          mask[py * maxWaterColumns + px] = 1;
+        }
+      }
+    }
+  };
+
+  const walk = (from: Cell, to: Cell, axis: 'x' | 'y') => {
+    const step = Math.sign(to[axis] - from[axis]);
+    const cursor = { ...from };
+    stamp(cursor.x, cursor.y);
+    while (cursor[axis] !== to[axis]) {
+      cursor[axis] += step;
+      stamp(cursor.x, cursor.y);
+    }
+    return cursor;
+  };
+
+  const elbow = horizontalFirst ? walk(a, b, 'x') : walk(a, b, 'y');
+  walk(elbow, b, horizontalFirst ? 'y' : 'x');
+}
+
+function roughenMask(mask: Uint8Array, W: number, H: number, rng: ReturnType<typeof createRng>): void {
+  const copy = mask.slice();
+  for (let y = 1; y < H - 1; y += 1) {
+    for (let x = 1; x < W - 1; x += 1) {
+      if (copy[y * maxWaterColumns + x] === 1 || !rng.chance(0.08)) {
+        continue;
+      }
+
+      const neighbors =
+        copy[y * maxWaterColumns + x - 1] +
+        copy[y * maxWaterColumns + x + 1] +
+        copy[(y - 1) * maxWaterColumns + x] +
+        copy[(y + 1) * maxWaterColumns + x];
+      if (neighbors >= 2) {
+        mask[y * maxWaterColumns + x] = 1;
+      }
+    }
+  }
+}
+
+function waterCellsFromMask(mask: Uint8Array, W: number, H: number): Cell[] {
+  const cells: Cell[] = [];
+  for (let y = 0; y < H; y += 1) {
+    for (let x = 0; x < W; x += 1) {
+      if (mask[y * maxWaterColumns + x] === 1) {
+        cells.push({ x, y });
+      }
+    }
+  }
+  return cells;
+}
+
+function floodMask(mask: Uint8Array, W: number, H: number, start: Cell): Int16Array {
+  const distances = new Int16Array(W * H).fill(-1);
+  const queue: Cell[] = [start];
+  distances[start.y * W + start.x] = 0;
+
+  for (let i = 0; i < queue.length; i += 1) {
+    const cell = queue[i];
+    for (const dir of Object.values(directionVectors)) {
+      const x = cell.x + dir.x;
+      const y = cell.y + dir.y;
+      const index = y * W + x;
+      if (x < 0 || y < 0 || x >= W || y >= H || distances[index] >= 0 || mask[y * maxWaterColumns + x] !== 1) {
+        continue;
+      }
+      distances[index] = distances[cell.y * W + cell.x] + 1;
+      queue.push({ x, y });
+    }
+  }
+
+  return distances;
+}
+
+function jetSlotsFromMask(mask: Uint8Array, W: number, H: number): JetMount[] {
+  const slots: JetMount[] = [];
+  for (let wallY = 0; wallY < H + 2; wallY += 1) {
+    for (let wallX = 0; wallX < W + 2; wallX += 1) {
+      const waterX = wallX - 1;
+      const waterY = wallY - 1;
+      if (waterX >= 0 && waterY >= 0 && waterX < W && waterY < H && mask[waterY * maxWaterColumns + waterX] === 1) {
+        continue;
+      }
+
+      for (const direction of ['N', 'S', 'E', 'W'] as Direction[]) {
+        const vector = directionVectors[direction];
+        const adjacentWaterX = wallX + vector.x - 1;
+        const adjacentWaterY = wallY + vector.y - 1;
+        if (
+          adjacentWaterX >= 0 &&
+          adjacentWaterY >= 0 &&
+          adjacentWaterX < W &&
+          adjacentWaterY < H &&
+          mask[adjacentWaterY * maxWaterColumns + adjacentWaterX] === 1
+        ) {
+          slots.push({ wallX, wallY, direction });
+        }
+      }
+    }
+  }
+  return slots;
+}
+
+function chooseStarterJets(
+  slots: JetMount[],
+  start: Cell,
+  goal: Cell,
+  rng: ReturnType<typeof createRng>
+): Array<JetMount & { presetId: PresetId }> {
+  const goalVector = { x: goal.x - start.x, y: goal.y - start.y };
+  const scored = slots
+    .map((slot) => {
+      const edge = jetEdgePoint(slot);
+      const dir = directionVectors[slot.direction];
+      const distanceToStart = Math.hypot(edge.x - (start.x + 1.5), edge.y - (start.y + 1.5));
+      const dot = dir.x * goalVector.x + dir.y * goalVector.y;
+      return { slot, score: dot - distanceToStart * 0.35 + rng.float(-0.25, 0.25) };
+    })
+    .sort((a, b) => b.score - a.score);
+  const used = new Set<string>();
+  const presets: PresetId[] = ['gentle', 'wide', 'blast'];
+  const starters: Array<JetMount & { presetId: PresetId }> = [];
+
+  for (const item of scored) {
+    const key = `${item.slot.wallX},${item.slot.wallY}`;
+    if (used.has(key)) {
+      continue;
+    }
+    used.add(key);
+    starters.push({ ...item.slot, presetId: presets[starters.length] ?? 'gentle' });
+    if (starters.length >= 3) {
+      break;
+    }
+  }
+
+  return starters;
+}
+
+function checksumMask(mask: Uint8Array): number {
+  let hash = 2166136261;
+  for (const value of mask) {
+    hash ^= value;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededLevelName(seed: number): string {
+  const rng = createRng(seed ^ 0xa717e22a);
+  const moods = ['Whispering', 'Sunken', 'Crooked', 'Moonlit', 'Restless', 'Tidal'];
+  const forms = ['Basin', 'Grotto', 'Runnel', 'Vault', 'Channel', 'Pool'];
+  const names = ['Nara', 'Voss', 'Kelm', 'Auri', 'Tarn', 'Luma'];
+  return `The ${rng.pick(moods)} ${rng.pick(forms)} of ${rng.pick(names)}`;
 }
 
 function inventoryPanelRect(): Rect {
