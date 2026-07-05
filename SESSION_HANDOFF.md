@@ -1,107 +1,193 @@
 # Aquerra Prototype Handoff
 
-Last updated: 2026-07-05
+Last updated: 2026-07-06
 
-## Project
+## Purpose
 
-Simple Phaser/Vite/TypeScript mechanics prototype for testing the Aquerra water-jet/tuber idea.
+Aquerra is a Phaser/Vite/TypeScript prototype for a water-jet puzzle game. The current build is a simplified procedural playtest: generate a basin, use limited jet stock to push the tuber into the goal, then auto-generate the next basin.
 
-Workspace:
+## Workspace
 
-`/Users/darylsmith/Documents/Codex/2026-06-20/w`
+```text
+/Users/darylsmith/Documents/Codex/2026-06-20/w
+```
 
-Run:
+Run locally:
 
 ```bash
 ./run-dev.sh
 ```
 
-Build-check command used by Codex:
+Build-check:
 
 ```bash
 CI=true PATH=/Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin:$PATH /Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/pnpm run build
 ```
 
-## Current prototype features
+Do not assume system `npm`/`pnpm` exists; earlier it was unavailable.
 
-- Barebones flat grid/water/wall view.
-- Water shape editor:
-  - Water columns/rows sliders set max water area.
-  - Wall-integrated arrow controls adjust individual row widths and column heights.
-  - Walls are generated around water and are not counted as water tiles.
-- Tuber:
-  - Right-click or shift-left-click water to move tuber.
-  - Tuber has velocity, drag, wall collision, bounciness, and goal detection.
-  - Current collision uses outer-edge sampling plus a small corner-slide helper.
-- Jets:
-  - Jets are mounted on wall/water edges, not inside wall cells.
-  - Jet direction comes from the water-adjacent side of the wall.
-  - Hovering an edge previews the jet stream.
-  - Left-click edge places selected stock jet.
-  - Left-click existing jet deletes it and starts recharge.
-  - Right-click existing jet restarts it and selects it.
-  - Selected jet can have sliders applied to update base power/range/width/decay.
-  - Jets decay over time and retire early using gameplay cutoffs:
-    - range <= 1 tile, or
-    - power <= 8% of base, or
-    - visual energy <= 8%, or
-    - stream width <= 0.12 cell.
-- Jet stock inventory:
-  - Right side of game canvas.
-  - Four preset jet types: Gentle stream, Strong blast, Wide push, Bouncy lab.
-  - 3 charges of each.
-  - Deleting/expiring/invalidating a jet starts a 5-second recharge.
-- Goal:
-  - Green target on water.
-  - Alt-click water to move the goal.
-- Debug:
-  - Toggleable force/range overlay.
-  - Readout includes water shape, tube state, jet counts, stock, selected stock, selected jet, cutoff info.
-- Side panel:
-  - Main sliders for tuning.
-  - Slider range editor for tuning slider min/max values.
-  - Quick preset buttons.
-  - Procedural basin generator with seed/dice controls.
-  - Selected jet controls.
-  - Reset tuber / clear jets / reset shape / reset goal.
-- Procedural generator:
-  - Deterministic seeded 10×10 basin generator.
-  - Creates irregular water masks, start, goal, edge jet slots, and 1–3 starter jets.
-  - Runs reachability/checksum validation and reports stats in the side panel/readout.
-  - Generated masks can be cleared by manual wall-arrow edits.
+## GitHub / Netlify
+
+GitHub:
+
+```text
+https://github.com/dazreil/aquerra
+```
+
+Live Netlify site:
+
+```text
+https://aquerra.netlify.app
+```
+
+Netlify is synced to GitHub. Normal deploy flow is:
+
+```bash
+git add .
+git commit -m "Describe change"
+git push
+```
+
+Netlify then auto-builds from GitHub.
+
+Latest pushed commit at handoff:
+
+```text
+f70b36c Remove auto-placed starter jets
+```
+
+Local status at handoff:
+
+```text
+main...origin/main
+```
 
 ## Important files
 
-- `src/main.ts` — all prototype logic/rendering.
-- `src/styles.css` — side panel styles.
-- `index.html` — side panel controls and help text.
-- `run-dev.sh` — runs Vite using bundled Codex runtime because local `npm/pnpm` were unavailable.
+- `src/main.ts` — all Phaser rendering, gameplay simulation, procedural generator, inventory, collision, win loop.
+- `src/styles.css` — responsive layout and compact side panel styling.
+- `index.html` — minimal visible UI plus hidden default config inputs.
+- `netlify.toml` — Netlify build config.
+- `run-dev.sh` — local dev runner using bundled Codex runtime.
+- `PROJECT_STARTUP_CHECKLIST.md` — reusable checklist for future projects.
 
-## Current known issue / next likely work
+## Current visible player-facing UI
 
-The tube can still get awkward around wall corners. The latest fix restored straight-on wall bounce and only attempts corner-slide when there is tangential force/motion or an asymmetrical corner pinch. If it still sticks, next likely step is replacing the current axis-split collision with a more proper circle-vs-solid-cell collision normal solver.
+The visible side panel is intentionally simple:
 
-## Recent implementation note
+- title/help text
+- procedural basin section:
+  - seed input
+  - Generate level
+  - Dice seed
+  - generator status
+- debug/readout panel
 
-Do not assume globally installed `npm`/`pnpm` exists. Use `./run-dev.sh` or the bundled pnpm path in the build command above.
+The old sliders, tuning panels, selected-jet editor, and basin-size controls are hidden/removed from the visible UI for this playtest version. Hidden inputs still exist in `index.html` to provide internal default values expected by existing code.
 
-## Netlify deploy
+## Current gameplay
 
-Latest Netlify deploy updated on 2026-07-05:
+- A procedural basin auto-generates on load.
+- The tuber starts in generated water.
+- The goal is generated at a reachable far water tile.
+- Player selects a jet type from the in-canvas `Jet stock` inventory.
+- Player places jets on valid wall/water edges.
+- No jets are auto-placed at the start.
+- Left-click existing jet deletes it and starts recharge.
+- Right-click existing jet restarts it.
+- Jets decay and retire using gameplay cutoffs.
+- Pushing the tuber into the green goal triggers a win state:
+  - status says the player won
+  - after a short delay, the next seed is generated automatically.
 
-- Canonical synced site URL: `https://aquerra.netlify.app`
-- Site ID: `f74c3bf2-b8e6-4acd-806c-e2c4fffc602f`
-- Deploy ID: `6a4a83f8b152603168a57199`
-- Status check: HTTP 200 after authenticated deploy.
+## Current procedural generator
 
-Procedural generator test deploy created on 2026-07-05:
+Implemented in `src/main.ts`.
 
-- Site URL: `https://ubiquitous-monstera-b6d72a.netlify.app`
-- Anonymous deploy password reported by Netlify: `My-Drop-Site`
-- Status check: HTTP 401 password gate, expected for anonymous deploy.
+Features:
 
-Previous anonymous deploy:
+- deterministic seeded generator
+- 10×10 water mask
+- irregular room/blob carving
+- channel carving between generated chambers
+- at least one loop when possible
+- flood/reachability validation
+- checksum validation logged to console
+- generated level name
+- start/goal placement
+- valid jet-slot detection
+- no starter jets placed automatically
 
-- `https://genuine-pasca-3becae.netlify.app`
+Relevant functions/types:
 
-This deploy has been claimed into the user's Netlify account. Future updates should deploy to the same site ID above.
+- `GeneratedLevel`
+- `generatePuzzleLevel(seed)`
+- `generatePuzzleLevelOnce(...)`
+- `createRng(seed)`
+- `carveBlob(...)`
+- `carveChannel(...)`
+- `floodMask(...)`
+- `jetSlotsFromMask(...)`
+
+## Current mechanics
+
+Tuber:
+
+- simulated as a circle-ish sampled point
+- water drag
+- wall collision
+- bounciness
+- small corner-slide helper for corner pinches
+
+Jets:
+
+- edge-mounted on generated walls
+- direction points from wall into adjacent water
+- four stock types:
+  - Gentle stream
+  - Strong blast
+  - Wide push
+  - Bouncy lab
+- 3 charges of each
+- deleted/expired/invalidated jets recharge after 5 seconds
+
+Jet retirement:
+
+- range <= 1 tile, or
+- power <= 8% of base, or
+- visual energy <= 8%, or
+- stream width <= 0.12 cell
+
+## Known issues / likely next work
+
+1. Controls are still mouse-first:
+   - left-click/right-click assumptions remain
+   - next pass should add explicit touch-friendly action buttons: Place, Delete, Restart.
+
+2. Inventory is still drawn inside Phaser canvas:
+   - works visually
+   - but for web/mobile UX, it may be better as HTML UI outside the canvas.
+
+3. Collision can still be awkward at wall corners:
+   - current axis-split movement plus corner-slide is a patch
+   - better long-term fix: circle-vs-solid-cell collision normal solver.
+
+4. Generator is useful but simple:
+   - currently 10×10 only
+   - no real difficulty progression yet
+   - no proof that generated levels are solvable with available jet stock, only that water is connected and jet slots exist.
+
+5. Win state is simple:
+   - it updates text and generates next seed
+   - no modal/animation yet.
+
+## Suggested next prompt
+
+Use this in a new thread:
+
+```text
+Read /Users/darylsmith/Documents/Codex/2026-06-20/w/SESSION_HANDOFF.md and continue from there.
+
+First, inspect the current app and suggest the next smallest playable improvement.
+```
+
