@@ -121,7 +121,7 @@ const boardOrigin = { ...origin };
 const boardPixelWidth = (maxWaterColumns + 2) * cellSize;
 const boardPixelHeight = (maxWaterRows + 2) * cellSize;
 const inventoryGap = 18;
-const inventoryWidth = 190;
+const inventoryHeight = 232;
 const inventoryStockMax = 3;
 const inventoryRechargeSeconds = 5;
 const jetRetireRangeCells = 1;
@@ -134,8 +134,8 @@ const cornerSlideVelocityKeep = 0.35;
 const cornerSlideVelocityIntent = 0.04;
 const cornerSlideForceIntent = 0.25;
 const allowManualShapeEditing = false;
-const canvasWidth = origin.x * 2 + boardPixelWidth + inventoryGap + inventoryWidth;
-const canvasHeight = origin.y * 2 + boardPixelHeight;
+const canvasWidth = origin.x * 2 + boardPixelWidth;
+const canvasHeight = origin.y * 2 + boardPixelHeight + inventoryGap + inventoryHeight;
 
 // These are WATER counts. Wall cells are generated around the resulting water shape.
 const rowWidths = Array.from({ length: maxWaterRows }, () => maxWaterColumns);
@@ -668,7 +668,7 @@ class PrototypeScene extends Phaser.Scene {
       fontStyle: 'bold'
     });
 
-    this.inventoryHintText = this.add.text(panel.left + 14, panel.top + panel.height - 48, 'Click stock to choose', {
+    this.inventoryHintText = this.add.text(panel.left + 14, panel.top + panel.height - 24, 'Tap stock to choose', {
       color: '#b8c2d8',
       fontFamily: 'Inter, system-ui, sans-serif',
       fontSize: '12px'
@@ -930,7 +930,7 @@ class PrototypeScene extends Phaser.Scene {
     this.graphics.strokeRoundedRect(panel.left, panel.top, panel.width, panel.height, 16);
 
     this.inventoryTitleText?.setPosition(panel.left + 14, panel.top + 12);
-    this.inventoryHintText?.setPosition(panel.left + 14, panel.top + panel.height - 48);
+    this.inventoryHintText?.setPosition(panel.left + 14, panel.top + panel.height - 24);
 
     for (const presetId of presetIds) {
       const preset = jetPresets[presetId];
@@ -1799,23 +1799,27 @@ function seededLevelName(seed: number): string {
 
 function inventoryPanelRect(): Rect {
   return {
-    left: origin.x + boardPixelWidth + inventoryGap,
-    top: origin.y,
-    width: inventoryWidth,
-    height: boardPixelHeight
+    left: origin.x,
+    top: origin.y + boardPixelHeight + inventoryGap,
+    width: boardPixelWidth,
+    height: inventoryHeight
   };
 }
 
 function inventorySlotRect(presetId: PresetId): Rect {
   const panel = inventoryPanelRect();
   const index = presetIds.indexOf(presetId);
-  const slotHeight = 82;
-  const gap = 12;
+  const columns = 2;
+  const slotHeight = 68;
+  const gap = 10;
+  const column = index % columns;
+  const row = Math.floor(index / columns);
+  const slotWidth = (panel.width - 24 - gap) / columns;
 
   return {
-    left: panel.left + 12,
-    top: panel.top + 56 + index * (slotHeight + gap),
-    width: panel.width - 24,
+    left: panel.left + 12 + column * (slotWidth + gap),
+    top: panel.top + 52 + row * (slotHeight + gap),
+    width: slotWidth,
     height: slotHeight
   };
 }

@@ -9,7 +9,7 @@ Aquerra is a Phaser/Vite/TypeScript prototype for a water-jet puzzle game. The c
 ## Workspace
 
 ```text
-/Users/darylsmith/Documents/Codex/2026-06-20/w
+/Users/darylsmith/Documents/Aquerra
 ```
 
 Run locally:
@@ -24,7 +24,9 @@ Build-check:
 CI=true PATH=/Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:/Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin:$PATH /Users/darylsmith/.cache/codex-runtimes/codex-primary-runtime/dependencies/bin/pnpm run build
 ```
 
-Do not assume system `npm`/`pnpm` exists; earlier it was unavailable.
+Do not assume system `npm`/`pnpm` exists; earlier it was unavailable. `run-dev.sh`
+now exports `CI=true` before running pnpm so it does not pause on non-interactive
+module-purge prompts.
 
 ## GitHub / Netlify
 
@@ -53,14 +55,19 @@ Netlify then auto-builds from GitHub.
 Latest pushed commit at handoff:
 
 ```text
-f70b36c Remove auto-placed starter jets
+f2f6f08 Add simple jet action controls
 ```
 
 Local status at handoff:
 
 ```text
-main...origin/main
+main...origin/main, with local uncommitted changes for the below-basin Jet stock layout and this handoff update
 ```
+
+GitHub CLI is authenticated as `dazreil`; `gh auth setup-git --hostname github.com`
+was run so HTTPS pushes can use the GitHub CLI credential helper. Netlify was
+verified live after the push: `https://aquerra.netlify.app` served the new Add
+jet / Remove jet UI and assets from commit `f2f6f08`.
 
 ## Important files
 
@@ -93,7 +100,7 @@ The old sliders, tuning panels, selected-jet editor, and basin-size controls are
 - A procedural basin auto-generates on load.
 - The tuber starts in generated water.
 - The goal is generated at a reachable far water tile.
-- Player selects a jet type from the in-canvas `Jet stock` inventory.
+- Player selects a jet type from the `Jet stock` inventory drawn below the basin.
 - Player uses Add jet to place jets on valid wall/water edges.
 - Player uses Remove jet to prevent accidental placement while deleting jets.
 - No jets are auto-placed at the start.
@@ -164,8 +171,8 @@ Jet retirement:
 ## Known issues / likely next work
 
 1. Inventory is still drawn inside Phaser canvas:
-   - works visually
-   - but for web/mobile UX, it may be better as HTML UI outside the canvas.
+   - it now sits below the basin so the board scales wider on mobile
+   - but for web/mobile UX, it may eventually be better as HTML UI outside the canvas.
 
 2. Jet types need a design pass:
    - current stock types are still prototype labels/values
@@ -189,7 +196,7 @@ Jet retirement:
 Use this in a new thread:
 
 ```text
-Read /Users/darylsmith/Documents/Codex/2026-06-20/w/SESSION_HANDOFF.md and continue from there.
+Read /Users/darylsmith/Documents/Aquerra/SESSION_HANDOFF.md and continue from there.
 
 First, inspect the current app and suggest the next smallest playable improvement.
 ```
