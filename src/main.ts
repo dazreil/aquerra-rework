@@ -63,6 +63,7 @@ type Controls = {
 };
 
 type PresetId = 'gentle' | 'blast' | 'wide' | 'bouncy';
+type ActionMode = 'add' | 'remove';
 
 type JetPreset = Pick<
   Controls,
@@ -166,6 +167,7 @@ const controls: Controls = {
 };
 
 const presetIds = ['gentle', 'blast', 'wide', 'bouncy'] as const satisfies readonly PresetId[];
+let selectedActionMode: ActionMode = 'add';
 
 const jetPresets: Record<PresetId, JetPreset> = {
   gentle: {
@@ -344,6 +346,32 @@ function setupGeneratorControls(): void {
   });
 }
 
+function setupActionControls(): void {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-action-mode]'));
+
+  const sync = () => {
+    for (const button of buttons) {
+      const isActive = button.dataset.actionMode === selectedActionMode;
+      button.classList.toggle('active', isActive);
+      button.setAttribute('aria-pressed', String(isActive));
+    }
+  };
+
+  for (const button of buttons) {
+    button.addEventListener('click', () => {
+      const mode = button.dataset.actionMode as ActionMode;
+      if (mode !== 'add' && mode !== 'remove') {
+        return;
+      }
+
+      selectedActionMode = mode;
+      sync();
+    });
+  }
+
+  sync();
+}
+
 function applyPresetToSliders(presetId: PresetId): void {
   const preset = jetPresets[presetId];
 
@@ -443,6 +471,7 @@ bindCheckbox('showDebugOverlay');
 setupRangeEditor();
 setupPresets();
 setupGeneratorControls();
+setupActionControls();
 
 class PrototypeScene extends Phaser.Scene {
   private readonly tuber = {
@@ -505,13 +534,7 @@ class PrototypeScene extends Phaser.Scene {
       const shouldMoveTuber = event?.button === 2 || event?.shiftKey === true;
       const hitJet = this.findJetAt(pointer.x, pointer.y);
 
-      if (event?.button === 2 && hitJet) {
-        this.restartJet(hitJet);
-        this.selectedJet = hitJet;
-        return;
-      }
-
-      if (event?.button === 0 && hitJet) {
+      if (hitJet) {
         this.deleteJet(hitJet);
         return;
       }
@@ -532,6 +555,10 @@ class PrototypeScene extends Phaser.Scene {
 
       const mount = findJetMountAt(pointer.x, pointer.y);
       if (mount) {
+        if (selectedActionMode !== 'add') {
+          return;
+        }
+
         if (!this.spendInventory(this.selectedPreset)) {
           return;
         }
@@ -1302,6 +1329,7 @@ class PrototypeScene extends Phaser.Scene {
       <span>Jet mounts: ${allJetMounts().length}</span>
       <span>Jets: ${this.jets.length}</span>
       <span>Stock: ${inventoryShape}</span>
+      <span>Action: ${selectedActionMode}</span>
       <span>Selected stock: ${jetPresets[this.selectedPreset].label}</span>
       <span>Selected jet: ${this.selectedJet ? `${this.selectedJet.wallX}, ${this.selectedJet.wallY}, ${this.selectedJet.direction}` : 'none'}</span>
       <span>Jet cutoff: range ≤ ${jetRetireRangeCells.toFixed(1)} or visual energy ≤ ${jetRetireVisualEnergy.toFixed(2)}</span>

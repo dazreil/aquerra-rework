@@ -76,6 +76,9 @@ main...origin/main
 The visible side panel is intentionally simple:
 
 - title/help text
+- action section:
+  - Add jet
+  - Remove jet
 - procedural basin section:
   - seed input
   - Generate level
@@ -91,10 +94,10 @@ The old sliders, tuning panels, selected-jet editor, and basin-size controls are
 - The tuber starts in generated water.
 - The goal is generated at a reachable far water tile.
 - Player selects a jet type from the in-canvas `Jet stock` inventory.
-- Player places jets on valid wall/water edges.
+- Player uses Add jet to place jets on valid wall/water edges.
+- Player uses Remove jet to prevent accidental placement while deleting jets.
 - No jets are auto-placed at the start.
-- Left-click existing jet deletes it and starts recharge.
-- Right-click existing jet restarts it.
+- Clicking an existing jet deletes it and starts recharge.
 - Jets decay and retire using gameplay cutoffs.
 - Pushing the tuber into the green goal triggers a win state:
   - status says the player won
@@ -160,13 +163,13 @@ Jet retirement:
 
 ## Known issues / likely next work
 
-1. Controls are still mouse-first:
-   - left-click/right-click assumptions remain
-   - next pass should add explicit touch-friendly action buttons: Place, Delete, Restart.
-
-2. Inventory is still drawn inside Phaser canvas:
+1. Inventory is still drawn inside Phaser canvas:
    - works visually
    - but for web/mobile UX, it may be better as HTML UI outside the canvas.
+
+2. Jet types need a design pass:
+   - current stock types are still prototype labels/values
+   - next pass should decide the final jet set and what each one is for.
 
 3. Collision can still be awkward at wall corners:
    - current axis-split movement plus corner-slide is a patch
@@ -190,4 +193,3 @@ Read /Users/darylsmith/Documents/Codex/2026-06-20/w/SESSION_HANDOFF.md and conti
 
 First, inspect the current app and suggest the next smallest playable improvement.
 ```
-

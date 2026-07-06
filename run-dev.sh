@@ -17,6 +17,7 @@ if [[ ! -x "$PNPM" ]]; then
 fi
 
 export PATH="$NODE_BIN:$CODEX_RUNTIME/bin:$PATH"
+export CI=true
 
 cd "$ROOT_DIR"
 "$PNPM" install --no-frozen-lockfile

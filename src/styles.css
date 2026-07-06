@@ -135,6 +135,7 @@ button:hover {
   border-color: #7cecff;
 }
 
+.action-panel,
 .generator-panel,
 .preset-panel,
 .selected-jet {
@@ -142,6 +143,25 @@ button:hover {
   border: 1px solid #353b51;
   border-radius: 12px;
   background: #10131d;
+}
+
+.mode-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.mode-grid button {
+  min-height: 44px;
+  padding: 9px 8px;
+  border-radius: 8px;
+}
+
+.mode-grid button.active {
+  border-color: #7cecff;
+  color: #081017;
+  background: #7cecff;
 }
 
 .generator-panel input[type="number"] {
@@ -263,6 +283,7 @@ button:hover {
   }
 
   .preset-grid,
+  .mode-grid,
   .button-row {
     grid-template-columns: 1fr;
   }
