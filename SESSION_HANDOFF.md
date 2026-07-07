@@ -1,10 +1,10 @@
 # Aquerra Prototype Handoff
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 ## Purpose
 
-Aquerra is a Phaser/Vite/TypeScript prototype for a water-jet puzzle game. The current build is a simplified procedural playtest: generate a basin, use limited jet stock to push the tuber into the goal, then auto-generate the next basin.
+Aquerra is a Phaser/Vite/TypeScript prototype for a water-jet puzzle game. The current rework build is a procedural playtest: generate a basin, spend a shared pressure budget on wall-mounted jets, aim placed jets, push the tuber into the goal, then auto-generate the next basin.
 
 ## Workspace
 
@@ -36,6 +36,12 @@ GitHub:
 https://github.com/dazreil/aquerra
 ```
 
+Rework GitHub repository for A/B testing:
+
+```text
+https://github.com/dazreil/aquerra-rework
+```
+
 Live Netlify site:
 
 ```text
@@ -55,19 +61,19 @@ Netlify then auto-builds from GitHub.
 Latest pushed commit at handoff:
 
 ```text
-f2f6f08 Add simple jet action controls
+8ac4abd Move jet stock below basin
 ```
 
 Local status at handoff:
 
 ```text
-main...origin/main, with local uncommitted changes for the below-basin Jet stock layout and this handoff update
+main...origin/main, with local uncommitted jet-mechanics rework changes
 ```
 
 GitHub CLI is authenticated as `dazreil`; `gh auth setup-git --hostname github.com`
-was run so HTTPS pushes can use the GitHub CLI credential helper. Netlify was
-verified live after the push: `https://aquerra.netlify.app` served the new Add
-jet / Remove jet UI and assets from commit `f2f6f08`.
+was run so HTTPS pushes can use the GitHub CLI credential helper. The `rework`
+remote points at `https://github.com/dazreil/aquerra-rework.git`; push the rework
+prototype there when ready, leaving `origin` as the original A/B baseline repo.
 
 ## Important files
 
@@ -100,11 +106,13 @@ The old sliders, tuning panels, selected-jet editor, and basin-size controls are
 - A procedural basin auto-generates on load.
 - The tuber starts in generated water.
 - The goal is generated at a reachable far water tile.
-- Player selects a jet type from the `Jet stock` inventory drawn below the basin.
+- Player selects Push Jet, Spin Jet, or Brake Jet from the `Jet stock` inventory drawn below the basin.
+- Player spends from a shared 10-pressure budget instead of per-type charges.
 - Player uses Add jet to place jets on valid wall/water edges.
+- In Add mode, tapping an existing jet cycles its aim through -45, -22, 0, 22, and 45 degrees.
 - Player uses Remove jet to prevent accidental placement while deleting jets.
 - No jets are auto-placed at the start.
-- Clicking an existing jet deletes it and starts recharge.
+- In Remove mode, clicking an existing jet deletes it and frees its pressure cost.
 - Jets decay and retire using gameplay cutoffs.
 - Pushing the tuber into the green goal triggers a win state:
   - status says the player won
@@ -152,14 +160,14 @@ Tuber:
 Jets:
 
 - edge-mounted on generated walls
-- direction points from wall into adjacent water
-- four stock types:
-  - Gentle stream
-  - Strong blast
-  - Wide push
-  - Bouncy lab
-- 3 charges of each
-- deleted/expired/invalidated jets recharge after 5 seconds
+- base direction points from wall into adjacent water
+- limited-angle aim offsets on placed jets
+- shared 10-pressure budget
+- three behavior types:
+  - Push Jet: straight directional force, cost 2
+  - Spin Jet: curved sideways flow, cost 3
+  - Brake Jet: slow zone opposing tuber velocity, cost 2
+- deleted/expired/invalidated jets refund pressure by being removed from the board
 
 Jet retirement:
 
@@ -174,9 +182,9 @@ Jet retirement:
    - it now sits below the basin so the board scales wider on mobile
    - but for web/mobile UX, it may eventually be better as HTML UI outside the canvas.
 
-2. Jet types need a design pass:
-   - current stock types are still prototype labels/values
-   - next pass should decide the final jet set and what each one is for.
+2. Jet rework needs tuning:
+   - pressure costs, stream widths, decay rates, and spin/brake strength are first-pass values
+   - next pass should playtest whether Push/Spin/Brake are distinct and understandable.
 
 3. Collision can still be awkward at wall corners:
    - current axis-split movement plus corner-slide is a patch
@@ -185,7 +193,7 @@ Jet retirement:
 4. Generator is useful but simple:
    - currently 10×10 only
    - no real difficulty progression yet
-   - no proof that generated levels are solvable with available jet stock, only that water is connected and jet slots exist.
+   - no proof that generated levels are solvable with available pressure, only that water is connected and jet slots exist.
 
 5. Win state is simple:
    - it updates text and generates next seed

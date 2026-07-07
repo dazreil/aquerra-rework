@@ -34,6 +34,7 @@ type JetMount = {
 
 type Jet = JetMount & {
   presetId: PresetId;
+  angleOffset: number;
   age: number;
   power: number;
   range: number;
@@ -62,7 +63,8 @@ type Controls = {
   showDebugOverlay: boolean;
 };
 
-type PresetId = 'gentle' | 'blast' | 'wide' | 'bouncy';
+type PresetId = 'push' | 'spin' | 'brake';
+type JetBehavior = 'push' | 'spin' | 'brake';
 type ActionMode = 'add' | 'remove';
 
 type JetPreset = Pick<
@@ -78,15 +80,15 @@ type JetPreset = Pick<
   | 'bounciness'
 > & {
   id: PresetId;
+  behavior: JetBehavior;
   label: string;
   shortLabel: string;
+  description: string;
   color: number;
+  pressureCost: number;
 };
 
-type InventorySlot = {
-  available: number;
-  rechargeTimers: number[];
-};
+type InventorySlot = Record<string, never>;
 
 type LevelRoom = Cell & {
   id: number;
@@ -122,8 +124,10 @@ const boardPixelWidth = (maxWaterColumns + 2) * cellSize;
 const boardPixelHeight = (maxWaterRows + 2) * cellSize;
 const inventoryGap = 18;
 const inventoryHeight = 232;
-const inventoryStockMax = 3;
-const inventoryRechargeSeconds = 5;
+const pressureBudget = 10;
+const aimStepRadians = Math.PI / 8;
+const aimMaxRadians = Math.PI / 4;
+const aimOffsets = [-aimMaxRadians, -aimStepRadians, 0, aimStepRadians, aimMaxRadians] as const;
 const jetRetireRangeCells = 1;
 const jetRetirePowerRatio = 0.08;
 const jetRetireVisualEnergy = 0.08;
@@ -166,69 +170,63 @@ const controls: Controls = {
   showDebugOverlay: true
 };
 
-const presetIds = ['gentle', 'blast', 'wide', 'bouncy'] as const satisfies readonly PresetId[];
+const presetIds = ['push', 'spin', 'brake'] as const satisfies readonly PresetId[];
 let selectedActionMode: ActionMode = 'add';
 
 const jetPresets: Record<PresetId, JetPreset> = {
-  gentle: {
-    id: 'gentle',
-    label: 'Gentle stream',
-    shortLabel: 'G',
+  push: {
+    id: 'push',
+    behavior: 'push',
+    label: 'Push Jet',
+    shortLabel: 'P',
+    description: 'Straight force',
     color: 0x7cecff,
-    jetPower: 5,
-    powerDecay: 0.2,
+    pressureCost: 2,
+    jetPower: 8,
+    powerDecay: 0.14,
     decayEase: 2.3,
     jetRange: 6,
-    rangeDecay: 0.15,
-    streamWidth: 1.1,
-    widthDecay: 0.2,
+    rangeDecay: 0.08,
+    streamWidth: 1.15,
+    widthDecay: 0.1,
     waterDrag: 1.4,
     bounciness: 0.35
   },
-  blast: {
-    id: 'blast',
-    label: 'Strong blast',
+  spin: {
+    id: 'spin',
+    behavior: 'spin',
+    label: 'Spin Jet',
     shortLabel: 'S',
-    color: 0xfff36d,
-    jetPower: 15,
-    powerDecay: 0.65,
-    decayEase: 1.6,
-    jetRange: 8,
-    rangeDecay: 0.35,
-    streamWidth: 1.2,
-    widthDecay: 0.45,
-    waterDrag: 0.9,
-    bounciness: 0.65
-  },
-  wide: {
-    id: 'wide',
-    label: 'Wide push',
-    shortLabel: 'W',
+    description: 'Curved flow',
     color: 0xa6ff8f,
-    jetPower: 8,
-    powerDecay: 0.35,
+    pressureCost: 3,
+    jetPower: 7,
+    powerDecay: 0.18,
     decayEase: 2.2,
-    jetRange: 5,
-    rangeDecay: 0.2,
-    streamWidth: 2.7,
-    widthDecay: 0.25,
+    jetRange: 5.5,
+    rangeDecay: 0.1,
+    streamWidth: 2.1,
+    widthDecay: 0.12,
     waterDrag: 1.1,
     bounciness: 0.45
   },
-  bouncy: {
-    id: 'bouncy',
-    label: 'Bouncy lab',
+  brake: {
+    id: 'brake',
+    behavior: 'brake',
+    label: 'Brake Jet',
     shortLabel: 'B',
-    color: 0xffc3e8,
-    jetPower: 10,
-    powerDecay: 0.45,
+    description: 'Slow zone',
+    color: 0xfff36d,
+    pressureCost: 2,
+    jetPower: 9,
+    powerDecay: 0.16,
     decayEase: 1.8,
-    jetRange: 7,
-    rangeDecay: 0.25,
-    streamWidth: 1.4,
-    widthDecay: 0.35,
-    waterDrag: 0.45,
-    bounciness: 0.9
+    jetRange: 4,
+    rangeDecay: 0.08,
+    streamWidth: 2.4,
+    widthDecay: 0.08,
+    waterDrag: 1.8,
+    bounciness: 0.25
   }
 };
 
@@ -491,7 +489,7 @@ class PrototypeScene extends Phaser.Scene {
   private hoverShapeButton: ShapeButton | null = null;
   private hoverInventoryPreset: PresetId | null = null;
   private selectedJet: Jet | null = null;
-  private selectedPreset: PresetId = 'gentle';
+  private selectedPreset: PresetId = 'push';
   private goal = centeredGoalPosition();
   private goalReached = false;
   private currentSeed = 1337;
@@ -535,7 +533,13 @@ class PrototypeScene extends Phaser.Scene {
       const hitJet = this.findJetAt(pointer.x, pointer.y);
 
       if (hitJet) {
-        this.deleteJet(hitJet);
+        if (selectedActionMode === 'remove') {
+          this.deleteJet(hitJet);
+          return;
+        }
+
+        this.cycleJetAim(hitJet);
+        this.selectedJet = hitJet;
         return;
       }
 
@@ -588,7 +592,7 @@ class PrototypeScene extends Phaser.Scene {
     const dt = Math.min(deltaMs / 1000, 1 / 30);
 
     normalizeShape();
-    this.updateInventory(dt);
+    this.updateInventory();
     this.keepEntitiesInsideShape();
     this.decayJets(dt);
     this.stepSimulation(dt);
@@ -686,45 +690,25 @@ class PrototypeScene extends Phaser.Scene {
     }
   }
 
-  private updateInventory(dt: number): void {
-    for (const presetId of presetIds) {
-      const slot = this.inventory[presetId];
-
-      for (let i = slot.rechargeTimers.length - 1; i >= 0; i -= 1) {
-        slot.rechargeTimers[i] -= dt;
-
-        if (slot.rechargeTimers[i] <= 0) {
-          slot.rechargeTimers.splice(i, 1);
-          slot.available = Math.min(inventoryStockMax, slot.available + 1);
-        }
-      }
-    }
+  private updateInventory(): void {
+    // Pressure replaces per-type stock for the rework prototype.
   }
 
   private spendInventory(presetId: PresetId): boolean {
-    const slot = this.inventory[presetId];
-
-    if (slot.available <= 0) {
+    if (pressureUsed(this.jets) + jetPresets[presetId].pressureCost > pressureBudget) {
       return false;
     }
 
-    slot.available -= 1;
     return true;
   }
 
-  private queueRecharge(presetId: PresetId): void {
-    const slot = this.inventory[presetId];
-
-    if (slot.available + slot.rechargeTimers.length >= inventoryStockMax) {
-      return;
-    }
-
-    slot.rechargeTimers.push(inventoryRechargeSeconds);
+  private refundPressure(_presetId: PresetId): void {
+    // Deleting a jet simply frees its pressure cost.
   }
 
-  private clearJets(recharge: boolean): void {
+  private clearJets(refundPressure: boolean): void {
     for (let i = this.jets.length - 1; i >= 0; i -= 1) {
-      this.removeJetAt(i, recharge);
+      this.removeJetAt(i, refundPressure);
     }
   }
 
@@ -789,7 +773,7 @@ class PrototypeScene extends Phaser.Scene {
 
     const force = this.jets.reduce(
       (total, jet) => {
-        const jetForce = getJetForce(jet, this.tuber.position);
+        const jetForce = getJetForce(jet, this.tuber.position, this.tuber.velocity);
         total.x += jetForce.x;
         total.y += jetForce.y;
         return total;
@@ -924,60 +908,57 @@ class PrototypeScene extends Phaser.Scene {
 
   private drawInventory(): void {
     const panel = inventoryPanelRect();
+    const usedPressure = pressureUsed(this.jets);
     this.graphics.fillStyle(0x151823, 1);
     this.graphics.fillRoundedRect(panel.left, panel.top, panel.width, panel.height, 16);
     this.graphics.lineStyle(1, 0x33384e, 1);
     this.graphics.strokeRoundedRect(panel.left, panel.top, panel.width, panel.height, 16);
 
-    this.inventoryTitleText?.setPosition(panel.left + 14, panel.top + 12);
+    this.inventoryTitleText?.setPosition(panel.left + 14, panel.top + 12).setText(`Jet stock · Pressure ${usedPressure}/${pressureBudget}`);
     this.inventoryHintText?.setPosition(panel.left + 14, panel.top + panel.height - 24);
+
+    const pressureBar = {
+      left: panel.left + 14,
+      top: panel.top + 40,
+      width: panel.width - 28,
+      height: 10
+    };
+    this.graphics.fillStyle(0x0b0d14, 0.95);
+    this.graphics.fillRoundedRect(pressureBar.left, pressureBar.top, pressureBar.width, pressureBar.height, 5);
+    this.graphics.fillStyle(0x7cecff, 0.9);
+    this.graphics.fillRoundedRect(
+      pressureBar.left,
+      pressureBar.top,
+      pressureBar.width * clamp(usedPressure / pressureBudget, 0, 1),
+      pressureBar.height,
+      5
+    );
+    this.graphics.lineStyle(1, 0x7cecff, 0.65);
+    this.graphics.strokeRoundedRect(pressureBar.left, pressureBar.top, pressureBar.width, pressureBar.height, 5);
 
     for (const presetId of presetIds) {
       const preset = jetPresets[presetId];
-      const slot = this.inventory[presetId];
       const rect = inventorySlotRect(presetId);
       const selected = this.selectedPreset === presetId;
       const hovered = this.hoverInventoryPreset === presetId;
-      const hasStock = slot.available > 0;
-      const nextRecharge = slot.rechargeTimers.length > 0 ? Math.min(...slot.rechargeTimers) : null;
-      const rechargeProgress = nextRecharge === null ? 0 : 1 - nextRecharge / inventoryRechargeSeconds;
+      const canAfford = usedPressure + preset.pressureCost <= pressureBudget || selected;
 
       this.graphics.fillStyle(selected ? 0x222638 : hovered ? 0x1b2131 : 0x10131d, 1);
       this.graphics.fillRoundedRect(rect.left, rect.top, rect.width, rect.height, 12);
       this.graphics.lineStyle(selected ? 3 : 1, selected ? preset.color : hovered ? 0x7cecff : 0x353b51, 1);
       this.graphics.strokeRoundedRect(rect.left, rect.top, rect.width, rect.height, 12);
 
-      this.graphics.fillStyle(preset.color, hasStock ? 0.95 : 0.3);
+      this.graphics.fillStyle(preset.color, canAfford ? 0.95 : 0.3);
       this.graphics.fillCircle(rect.left + 27, rect.top + 28, 16);
-      this.graphics.lineStyle(2, 0xffffff, hasStock ? 0.75 : 0.25);
+      this.graphics.lineStyle(2, 0xffffff, canAfford ? 0.75 : 0.25);
       this.graphics.strokeCircle(rect.left + 27, rect.top + 28, 16);
-
-      for (let i = 0; i < inventoryStockMax; i += 1) {
-        const pipX = rect.left + 16 + i * 12;
-        const pipY = rect.top + rect.height - 16;
-        const filled = i < slot.available;
-
-        this.graphics.fillStyle(filled ? preset.color : 0x0b0d14, filled ? 0.95 : 0.55);
-        this.graphics.fillCircle(pipX, pipY, 4.2);
-        this.graphics.lineStyle(1, preset.color, 0.55);
-        this.graphics.strokeCircle(pipX, pipY, 4.2);
-      }
-
-      if (nextRecharge !== null) {
-        this.graphics.fillStyle(0x0b0d14, 0.9);
-        this.graphics.fillRoundedRect(rect.left + 58, rect.top + rect.height - 17, rect.width - 74, 6, 3);
-        this.graphics.fillStyle(preset.color, 0.85);
-        this.graphics.fillRoundedRect(rect.left + 58, rect.top + rect.height - 17, (rect.width - 74) * rechargeProgress, 6, 3);
-      }
 
       this.inventoryTexts
         .get(presetId)
         ?.setText(
-          `${preset.label}\nStock ${slot.available}/${inventoryStockMax}${
-            nextRecharge === null ? '' : ` · +1 in ${Math.max(0, nextRecharge).toFixed(1)}s`
-          }`
+          `${preset.label}\n${preset.description} · Cost ${preset.pressureCost}`
         )
-        .setAlpha(hasStock ? 1 : 0.58);
+        .setAlpha(canAfford ? 1 : 0.58);
     }
   }
 
@@ -1098,8 +1079,7 @@ class PrototypeScene extends Phaser.Scene {
 
     const selected = this.findJetAtMount(this.hoverMount);
     const ghostJet = selected ?? makePreviewJet(this.hoverMount, this.selectedPreset);
-    const selectedStock = this.inventory[this.selectedPreset];
-    const canPlace = selected || selectedStock.available > 0;
+    const canPlace = selected || pressureUsed(this.jets) + jetPresets[this.selectedPreset].pressureCost <= pressureBudget;
     const color = selected ? 0xffc3e8 : canPlace ? jetPresets[this.selectedPreset].color : 0xff5c7a;
 
     this.drawJetStream(ghostJet, {
@@ -1125,7 +1105,7 @@ class PrototypeScene extends Phaser.Scene {
 
       this.drawJetStream(jet, { color: preset.color });
 
-      const dir = directionVectors[jet.direction];
+      const dir = jetDirection(jet);
       const arrowEnd = gridToScreen(jetEdgePoint(jet).x + dir.x * 0.45, jetEdgePoint(jet).y + dir.y * 0.45);
       this.graphics.lineStyle(2, 0xffffff, 0.45 + powerRatio * 0.4);
       this.graphics.lineBetween(center.x, center.y, arrowEnd.x, arrowEnd.y);
@@ -1141,7 +1121,7 @@ class PrototypeScene extends Phaser.Scene {
     jet: Jet,
     options: { color?: number; alphaScale?: number; widthScale?: number } = {}
   ): void {
-    const dir = directionVectors[jet.direction];
+    const dir = jetDirection(jet);
     const powerRatio = clamp(jet.power / Math.max(jet.basePower, 0.001), 0, 1);
     const rangeRatio = clamp(jet.range / Math.max(jet.baseRange, 0.001), 0, 1);
     const widthRatio = clamp(jet.streamWidth / Math.max(jet.baseStreamWidth, 0.001), 0, 1);
@@ -1195,7 +1175,7 @@ class PrototypeScene extends Phaser.Scene {
     for (const jet of this.jets) {
       const edge = jetEdgePoint(jet);
       const start = gridToScreen(edge.x, edge.y);
-      const dir = directionVectors[jet.direction];
+      const dir = jetDirection(jet);
       const end = gridToScreen(edge.x + dir.x * jet.range, edge.y + dir.y * jet.range);
 
       this.graphics.lineStyle(1, 0xffffff, this.selectedJet === jet ? 0.55 : 0.22);
@@ -1254,6 +1234,12 @@ class PrototypeScene extends Phaser.Scene {
     jet.streamWidth = jet.baseStreamWidth;
   }
 
+  private cycleJetAim(jet: Jet): void {
+    const currentIndex = aimOffsets.findIndex((offset) => Math.abs(offset - jet.angleOffset) < 0.001);
+    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % aimOffsets.length;
+    jet.angleOffset = aimOffsets[nextIndex];
+  }
+
   private deleteSelectedJet(): void {
     if (!this.selectedJet) {
       return;
@@ -1269,15 +1255,15 @@ class PrototypeScene extends Phaser.Scene {
     }
   }
 
-  private removeJetAt(index: number, recharge: boolean): void {
+  private removeJetAt(index: number, refundPressure: boolean): void {
     const jet = this.jets[index];
 
     if (!jet) {
       return;
     }
 
-    if (recharge) {
-      this.queueRecharge(jet.presetId);
+    if (refundPressure) {
+      this.refundPressure(jet.presetId);
     }
 
     if (this.selectedJet === jet) {
@@ -1290,7 +1276,7 @@ class PrototypeScene extends Phaser.Scene {
   private updateReadout(): void {
     if (selectedJetStatus) {
       selectedJetStatus.textContent = this.selectedJet
-        ? `${jetPresets[this.selectedJet.presetId].label} at ${this.selectedJet.wallX}, ${this.selectedJet.wallY} firing ${this.selectedJet.direction} · power ${this.selectedJet.basePower.toFixed(2)} · range ${this.selectedJet.baseRange.toFixed(2)} · width ${this.selectedJet.baseStreamWidth.toFixed(2)}`
+        ? `${jetPresets[this.selectedJet.presetId].label} at ${this.selectedJet.wallX}, ${this.selectedJet.wallY} firing ${this.selectedJet.direction} · aim ${radiansToDegrees(this.selectedJet.angleOffset)}° · cost ${jetPresets[this.selectedJet.presetId].pressureCost}`
         : 'No jet selected.';
     }
 
@@ -1302,14 +1288,12 @@ class PrototypeScene extends Phaser.Scene {
     const speed = Math.hypot(this.tuber.velocity.x, this.tuber.velocity.y);
     const force = Math.hypot(this.lastForce.x, this.lastForce.y);
     const strongestJet = this.jets.reduce((max, jet) => Math.max(max, jet.power), 0);
+    const usedPressure = pressureUsed(this.jets);
     const waterTiles = countWaterTiles();
     const wallTiles = countWallTiles();
     const rowShape = rowWidths.slice(0, controls.gridRows).join(', ');
     const inventoryShape = presetIds
-      .map((presetId) => {
-        const slot = this.inventory[presetId];
-        return `${jetPresets[presetId].shortLabel}:${slot.available}+${slot.rechargeTimers.length}`;
-      })
+      .map((presetId) => `${jetPresets[presetId].shortLabel}:${jetPresets[presetId].pressureCost}`)
       .join(' ');
 
     readout.innerHTML = `
@@ -1328,10 +1312,10 @@ class PrototypeScene extends Phaser.Scene {
       <span>Bounciness: ${controls.bounciness.toFixed(2)}</span>
       <span>Jet mounts: ${allJetMounts().length}</span>
       <span>Jets: ${this.jets.length}</span>
-      <span>Stock: ${inventoryShape}</span>
+      <span>Pressure: ${usedPressure}/${pressureBudget} · costs ${inventoryShape}</span>
       <span>Action: ${selectedActionMode}</span>
-      <span>Selected stock: ${jetPresets[this.selectedPreset].label}</span>
-      <span>Selected jet: ${this.selectedJet ? `${this.selectedJet.wallX}, ${this.selectedJet.wallY}, ${this.selectedJet.direction}` : 'none'}</span>
+      <span>Selected jet type: ${jetPresets[this.selectedPreset].label}</span>
+      <span>Selected jet: ${this.selectedJet ? `${this.selectedJet.wallX}, ${this.selectedJet.wallY}, ${this.selectedJet.direction}, ${radiansToDegrees(this.selectedJet.angleOffset)}°` : 'none'}</span>
       <span>Jet cutoff: range ≤ ${jetRetireRangeCells.toFixed(1)} or visual energy ≤ ${jetRetireVisualEnergy.toFixed(2)}</span>
       <span>Strongest jet: ${strongestJet.toFixed(2)}</span>
     `;
@@ -1344,6 +1328,7 @@ function makeJet(mount: JetMount, presetId: PresetId): Jet {
   return {
     ...mount,
     presetId,
+    angleOffset: 0,
     age: 0,
     power: preset.jetPower,
     range: preset.jetRange,
@@ -1364,6 +1349,7 @@ function makePreviewJet(mount: JetMount, presetId: PresetId): Jet {
   return {
     ...mount,
     presetId,
+    angleOffset: 0,
     age: 0,
     power: preset.jetPower,
     range: preset.jetRange,
@@ -1378,8 +1364,8 @@ function makePreviewJet(mount: JetMount, presetId: PresetId): Jet {
   };
 }
 
-function getJetForce(jet: Jet, point: Vec2): Vec2 {
-  const dir = directionVectors[jet.direction];
+function getJetForce(jet: Jet, point: Vec2, velocity: Vec2): Vec2 {
+  const dir = jetDirection(jet);
   const originPoint = jetEdgePoint(jet);
   const relative = { x: point.x - originPoint.x, y: point.y - originPoint.y };
   const forward = relative.x * dir.x + relative.y * dir.y;
@@ -1391,11 +1377,55 @@ function getJetForce(jet: Jet, point: Vec2): Vec2 {
 
   const falloff = Math.max(0, 1 - forward / Math.max(jet.range, 0.001));
   const strength = jet.power * falloff;
+  const preset = jetPresets[jet.presetId];
+
+  if (preset.behavior === 'spin') {
+    const tangent = { x: -dir.y, y: dir.x };
+    const sideSign = Math.sign(relative.x * -dir.y + relative.y * dir.x) || 1;
+    return {
+      x: dir.x * strength * 0.25 + tangent.x * strength * 0.85 * sideSign,
+      y: dir.y * strength * 0.25 + tangent.y * strength * 0.85 * sideSign
+    };
+  }
+
+  if (preset.behavior === 'brake') {
+    const speed = Math.hypot(velocity.x, velocity.y);
+    if (speed < 0.03) {
+      return { x: 0, y: 0 };
+    }
+
+    return {
+      x: -(velocity.x / speed) * strength,
+      y: -(velocity.y / speed) * strength
+    };
+  }
 
   return {
     x: dir.x * strength,
     y: dir.y * strength
   };
+}
+
+function pressureUsed(jets: readonly Jet[]): number {
+  return jets.reduce((total, jet) => total + jetPresets[jet.presetId].pressureCost, 0);
+}
+
+function jetDirection(jet: Pick<Jet, 'direction' | 'angleOffset'>): Vec2 {
+  return rotateVec(directionVectors[jet.direction], jet.angleOffset);
+}
+
+function rotateVec(vector: Vec2, radians: number): Vec2 {
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+
+  return {
+    x: vector.x * cos - vector.y * sin,
+    y: vector.x * sin + vector.y * cos
+  };
+}
+
+function radiansToDegrees(radians: number): number {
+  return Math.round((radians * 180) / Math.PI);
 }
 
 function shouldRetireJet(jet: Jet): boolean {
@@ -1482,18 +1512,14 @@ function isInsideBoard(x: number, y: number): boolean {
 
 function createInventory(): Record<PresetId, InventorySlot> {
   return {
-    gentle: { available: inventoryStockMax, rechargeTimers: [] },
-    blast: { available: inventoryStockMax, rechargeTimers: [] },
-    wide: { available: inventoryStockMax, rechargeTimers: [] },
-    bouncy: { available: inventoryStockMax, rechargeTimers: [] }
+    push: {},
+    spin: {},
+    brake: {}
   };
 }
 
-function resetInventory(inventory: Record<PresetId, InventorySlot>): void {
-  for (const presetId of presetIds) {
-    inventory[presetId].available = inventoryStockMax;
-    inventory[presetId].rechargeTimers.length = 0;
-  }
+function resetInventory(_inventory: Record<PresetId, InventorySlot>): void {
+  // Pressure is derived from placed jets, so clearing jets resets budget use.
 }
 
 function syncShapeExtentsFromMask(mask: Uint8Array): void {
@@ -1810,7 +1836,7 @@ function inventorySlotRect(presetId: PresetId): Rect {
   const panel = inventoryPanelRect();
   const index = presetIds.indexOf(presetId);
   const columns = 2;
-  const slotHeight = 68;
+  const slotHeight = 58;
   const gap = 10;
   const column = index % columns;
   const row = Math.floor(index / columns);
@@ -1818,7 +1844,7 @@ function inventorySlotRect(presetId: PresetId): Rect {
 
   return {
     left: panel.left + 12 + column * (slotWidth + gap),
-    top: panel.top + 52 + row * (slotHeight + gap),
+    top: panel.top + 70 + row * (slotHeight + gap),
     width: slotWidth,
     height: slotHeight
   };
