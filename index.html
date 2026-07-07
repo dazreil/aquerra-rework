@@ -12,9 +12,10 @@
         <aside id="controls">
           <h1>Aquerra Lab</h1>
           <p class="note">
-            Choose a jet type, spend pressure to place it on a wall/water edge, then tap placed jets
-            in Add mode to aim them. Start flow when the setup is ready, then push the tuber into the
-            green goal to win.
+            Choose a jet, bomb, or bouncer, then spend power to place it. Jets and bouncers mount on
+            walls; bombs land directly on water. Tap placed jets in Add mode to aim them. Angled jets
+            cost +2 power. Start flow when the setup is ready, then push the tuber into the green goal
+            to win.
           </p>
 
           <section class="action-panel" aria-labelledby="actionTitle">
@@ -51,22 +52,22 @@
             <output id="gridRowsValue">8</output>
             <input id="jetPower" type="range" min="0" max="18" value="8" step="0.25" />
             <output id="jetPowerValue">8.00</output>
-            <input id="powerDecay" type="range" min="0" max="5" value="0.45" step="0.05" />
-            <output id="powerDecayValue">0.45</output>
+            <input id="powerDecay" type="range" min="0" max="5" value="0.9" step="0.05" />
+            <output id="powerDecayValue">0.90</output>
             <input id="decayEase" type="range" min="0.5" max="4" value="1.8" step="0.05" />
             <output id="decayEaseValue">1.80</output>
             <input id="jetRange" type="range" min="1" max="10" value="7" step="0.25" />
             <output id="jetRangeValue">7.00</output>
-            <input id="rangeDecay" type="range" min="0" max="5" value="0.25" step="0.05" />
-            <output id="rangeDecayValue">0.25</output>
+            <input id="rangeDecay" type="range" min="0" max="5" value="0.65" step="0.05" />
+            <output id="rangeDecayValue">0.65</output>
             <input id="streamWidth" type="range" min="0.3" max="4" value="1.4" step="0.1" />
             <output id="streamWidthValue">1.40</output>
-            <input id="widthDecay" type="range" min="0" max="5" value="0.35" step="0.05" />
-            <output id="widthDecayValue">0.35</output>
-            <input id="waterDrag" type="range" min="0.1" max="5" value="1.2" step="0.05" />
-            <output id="waterDragValue">1.20</output>
-            <input id="bounciness" type="range" min="0" max="1" value="0.55" step="0.05" />
-            <output id="bouncinessValue">0.55</output>
+            <input id="widthDecay" type="range" min="0" max="5" value="0.55" step="0.05" />
+            <output id="widthDecayValue">0.55</output>
+            <input id="waterDrag" type="range" min="0.1" max="5" value="0.65" step="0.05" />
+            <output id="waterDragValue">0.65</output>
+            <input id="bounciness" type="range" min="0" max="1" value="0.82" step="0.05" />
+            <output id="bouncinessValue">0.82</output>
             <input id="showDebugOverlay" type="checkbox" checked />
             <p id="selectedJetStatus">No jet selected.</p>
             <div id="rangeEditorFields"></div>

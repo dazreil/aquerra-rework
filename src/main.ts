@@ -63,8 +63,17 @@ type Controls = {
   showDebugOverlay: boolean;
 };
 
-type PresetId = 'push' | 'spin' | 'brake';
-type JetBehavior = 'push' | 'spin' | 'brake';
+type PresetId =
+  | 'jet1'
+  | 'jet2'
+  | 'jet3'
+  | 'jet4'
+  | 'bomb1'
+  | 'bomb2'
+  | 'bomb3'
+  | 'bomb4'
+  | 'bouncer';
+type JetBehavior = 'jet' | 'bomb' | 'bouncer';
 type ActionMode = 'add' | 'remove';
 
 type JetPreset = Pick<
@@ -85,7 +94,8 @@ type JetPreset = Pick<
   shortLabel: string;
   description: string;
   color: number;
-  pressureCost: number;
+  baseCost: number;
+  powerLevel: number;
 };
 
 type InventorySlot = Record<string, never>;
@@ -123,18 +133,20 @@ const boardOrigin = { ...origin };
 const boardPixelWidth = (maxWaterColumns + 2) * cellSize;
 const boardPixelHeight = (maxWaterRows + 2) * cellSize;
 const inventoryGap = 18;
-const inventoryHeight = 232;
-const pressureBudget = 10;
+const inventoryHeight = 300;
+const powerBudget = 12;
+const anglePowerSurcharge = 2;
 const aimStepRadians = Math.PI / 8;
 const aimMaxRadians = Math.PI / 4;
 const aimOffsets = [-aimMaxRadians, -aimStepRadians, 0, aimStepRadians, aimMaxRadians] as const;
-const jetRetireRangeCells = 1;
-const jetRetirePowerRatio = 0.08;
-const jetRetireVisualEnergy = 0.08;
+const jetRetireRangeCells = 0.75;
+const jetRetirePowerRatio = 0.16;
+const jetRetireVisualEnergy = 0.18;
 const jetRetireStreamWidthCells = 0.12;
 const cornerSlideStepCells = 0.04;
 const cornerSlideAttempts = 7;
-const cornerSlideVelocityKeep = 0.35;
+const cornerSlideVelocityKeep = 0.65;
+const minimumWallBounceSpeed = 0.9;
 const cornerSlideVelocityIntent = 0.04;
 const cornerSlideForceIntent = 0.25;
 const allowManualShapeEditing = false;
@@ -159,74 +171,201 @@ const controls: Controls = {
   gridColumns: 10,
   gridRows: 8,
   jetPower: 8,
-  powerDecay: 0.45,
+  powerDecay: 0.9,
   decayEase: 1.8,
   jetRange: 7,
-  rangeDecay: 0.25,
+  rangeDecay: 0.65,
   streamWidth: 1.4,
-  widthDecay: 0.35,
-  waterDrag: 1.2,
-  bounciness: 0.55,
+  widthDecay: 0.55,
+  waterDrag: 0.65,
+  bounciness: 0.82,
   showDebugOverlay: true
 };
 
-const presetIds = ['push', 'spin', 'brake'] as const satisfies readonly PresetId[];
+const presetIds = [
+  'jet1',
+  'jet2',
+  'jet3',
+  'jet4',
+  'bomb1',
+  'bomb2',
+  'bomb3',
+  'bomb4',
+  'bouncer'
+] as const satisfies readonly PresetId[];
 let selectedActionMode: ActionMode = 'add';
 
 const jetPresets: Record<PresetId, JetPreset> = {
-  push: {
-    id: 'push',
-    behavior: 'push',
-    label: 'Push Jet',
-    shortLabel: 'P',
-    description: 'Straight force',
+  jet1: {
+    id: 'jet1',
+    behavior: 'jet',
+    label: 'Jet P1',
+    shortLabel: 'J1',
+    description: '1-cell push',
     color: 0x7cecff,
-    pressureCost: 2,
+    baseCost: 1,
+    powerLevel: 1,
+    jetPower: 2,
+    powerDecay: 0.9,
+    decayEase: 2.3,
+    jetRange: 1.5,
+    rangeDecay: 0.62,
+    streamWidth: 1.15,
+    widthDecay: 0.42,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  jet2: {
+    id: 'jet2',
+    behavior: 'jet',
+    label: 'Jet P2',
+    shortLabel: 'J2',
+    description: '2-cell push',
+    color: 0x7cecff,
+    baseCost: 2,
+    powerLevel: 2,
+    jetPower: 4,
+    powerDecay: 0.9,
+    decayEase: 2.3,
+    jetRange: 3,
+    rangeDecay: 0.62,
+    streamWidth: 1.15,
+    widthDecay: 0.42,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  jet3: {
+    id: 'jet3',
+    behavior: 'jet',
+    label: 'Jet P3',
+    shortLabel: 'J3',
+    description: '3-cell push',
+    color: 0x7cecff,
+    baseCost: 3,
+    powerLevel: 3,
+    jetPower: 6,
+    powerDecay: 0.9,
+    decayEase: 2.3,
+    jetRange: 4.5,
+    rangeDecay: 0.62,
+    streamWidth: 1.15,
+    widthDecay: 0.42,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  jet4: {
+    id: 'jet4',
+    behavior: 'jet',
+    label: 'Jet P4',
+    shortLabel: 'J4',
+    description: 'full straight shot',
+    color: 0x7cecff,
+    baseCost: 4,
+    powerLevel: 4,
     jetPower: 8,
-    powerDecay: 0.14,
+    powerDecay: 0.9,
     decayEase: 2.3,
     jetRange: 6,
-    rangeDecay: 0.08,
+    rangeDecay: 0.62,
     streamWidth: 1.15,
-    widthDecay: 0.1,
-    waterDrag: 1.4,
-    bounciness: 0.35
+    widthDecay: 0.42,
+    waterDrag: 0.65,
+    bounciness: 0.82
   },
-  spin: {
-    id: 'spin',
-    behavior: 'spin',
-    label: 'Spin Jet',
-    shortLabel: 'S',
-    description: 'Curved flow',
-    color: 0xa6ff8f,
-    pressureCost: 3,
-    jetPower: 7,
-    powerDecay: 0.18,
-    decayEase: 2.2,
-    jetRange: 5.5,
-    rangeDecay: 0.1,
-    streamWidth: 2.1,
-    widthDecay: 0.12,
-    waterDrag: 1.1,
-    bounciness: 0.45
-  },
-  brake: {
-    id: 'brake',
-    behavior: 'brake',
-    label: 'Brake Jet',
-    shortLabel: 'B',
-    description: 'Slow zone',
+  bomb1: {
+    id: 'bomb1',
+    behavior: 'bomb',
+    label: 'Bomb P1',
+    shortLabel: 'B1',
+    description: '1 ripple',
     color: 0xfff36d,
-    pressureCost: 2,
-    jetPower: 9,
-    powerDecay: 0.16,
-    decayEase: 1.8,
-    jetRange: 4,
-    rangeDecay: 0.08,
-    streamWidth: 2.4,
-    widthDecay: 0.08,
-    waterDrag: 1.8,
-    bounciness: 0.25
+    baseCost: 3,
+    powerLevel: 1,
+    jetPower: 2.2,
+    powerDecay: 1.05,
+    decayEase: 2,
+    jetRange: 2.2,
+    rangeDecay: 0.72,
+    streamWidth: 1.4,
+    widthDecay: 0.48,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  bomb2: {
+    id: 'bomb2',
+    behavior: 'bomb',
+    label: 'Bomb P2',
+    shortLabel: 'B2',
+    description: '2 ripples',
+    color: 0xfff36d,
+    baseCost: 6,
+    powerLevel: 2,
+    jetPower: 3.6,
+    powerDecay: 1.05,
+    decayEase: 2,
+    jetRange: 3,
+    rangeDecay: 0.72,
+    streamWidth: 1.75,
+    widthDecay: 0.48,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  bomb3: {
+    id: 'bomb3',
+    behavior: 'bomb',
+    label: 'Bomb P3',
+    shortLabel: 'B3',
+    description: '3 ripples',
+    color: 0xfff36d,
+    baseCost: 9,
+    powerLevel: 3,
+    jetPower: 4.8,
+    powerDecay: 1.05,
+    decayEase: 2,
+    jetRange: 3.8,
+    rangeDecay: 0.72,
+    streamWidth: 2.1,
+    widthDecay: 0.48,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  bomb4: {
+    id: 'bomb4',
+    behavior: 'bomb',
+    label: 'Bomb P4',
+    shortLabel: 'B4',
+    description: '4 ripples',
+    color: 0xfff36d,
+    baseCost: 12,
+    powerLevel: 4,
+    jetPower: 5.8,
+    powerDecay: 1.05,
+    decayEase: 2,
+    jetRange: 4.6,
+    rangeDecay: 0.72,
+    streamWidth: 2.45,
+    widthDecay: 0.48,
+    waterDrag: 0.65,
+    bounciness: 0.82
+  },
+  bouncer: {
+    id: 'bouncer',
+    behavior: 'bouncer',
+    label: 'Bouncer',
+    shortLabel: 'BO',
+    description: '10-cell launch',
+    color: 0xa6ff8f,
+    baseCost: 8,
+    powerLevel: 4,
+    jetPower: 18,
+    powerDecay: 1.15,
+    decayEase: 2.1,
+    jetRange: 10,
+    rangeDecay: 0.82,
+    streamWidth: 1.5,
+    widthDecay: 0.52,
+    waterDrag: 0.55,
+    bounciness: 0.9
   }
 };
 
@@ -486,10 +625,11 @@ class PrototypeScene extends Phaser.Scene {
   private inventoryHintText?: Phaser.GameObjects.Text;
   private lastForce: Vec2 = { x: 0, y: 0 };
   private hoverMount: JetMount | null = null;
+  private hoverBombCell: Cell | null = null;
   private hoverShapeButton: ShapeButton | null = null;
   private hoverInventoryPreset: PresetId | null = null;
   private selectedJet: Jet | null = null;
-  private selectedPreset: PresetId = 'push';
+  private selectedPreset: PresetId = 'jet4';
   private goal = centeredGoalPosition();
   private goalReached = false;
   private currentSeed = 1337;
@@ -508,7 +648,14 @@ class PrototypeScene extends Phaser.Scene {
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
       this.hoverInventoryPreset = hitInventorySlot(pointer.x, pointer.y);
       this.hoverShapeButton = this.hoverInventoryPreset ? null : hitShapeButton(pointer.x, pointer.y);
-      this.hoverMount = this.hoverInventoryPreset || this.hoverShapeButton ? null : findJetMountAt(pointer.x, pointer.y);
+      this.hoverBombCell =
+        this.hoverInventoryPreset || this.hoverShapeButton || !isBombPreset(this.selectedPreset)
+          ? null
+          : findWaterCellAt(pointer.x, pointer.y);
+      this.hoverMount =
+        this.hoverInventoryPreset || this.hoverShapeButton || isBombPreset(this.selectedPreset)
+          ? null
+          : findJetMountAt(pointer.x, pointer.y);
     });
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -539,6 +686,12 @@ class PrototypeScene extends Phaser.Scene {
           return;
         }
 
+        if (isBombPreset(hitJet.presetId)) {
+          this.selectedJet = hitJet;
+          this.setFlowActive(false);
+          return;
+        }
+
         this.cycleJetAim(hitJet);
         this.selectedJet = hitJet;
         this.setFlowActive(false);
@@ -556,6 +709,18 @@ class PrototypeScene extends Phaser.Scene {
         if (isWaterCell(cellX, cellY)) {
           this.placeTuber(cellX, cellY);
         }
+        return;
+      }
+
+      if (selectedActionMode === 'add' && isBombPreset(this.selectedPreset) && isWaterCell(cellX, cellY)) {
+        if (!this.spendInventory(this.selectedPreset)) {
+          return;
+        }
+
+        const jet = makeBomb({ x: cellX, y: cellY }, this.selectedPreset);
+        this.jets.push(jet);
+        this.selectedJet = jet;
+        this.setFlowActive(false);
         return;
       }
 
@@ -700,19 +865,19 @@ class PrototypeScene extends Phaser.Scene {
   }
 
   private updateInventory(): void {
-    // Pressure replaces per-type stock for the rework prototype.
+    // Power is derived from placed tools, so there is no per-type stock to update.
   }
 
   private spendInventory(presetId: PresetId): boolean {
-    if (pressureUsed(this.jets) + jetPresets[presetId].pressureCost > pressureBudget) {
+    if (powerUsed(this.jets) + jetCost(presetId) > powerBudget) {
       return false;
     }
 
     return true;
   }
 
-  private refundPressure(_presetId: PresetId): void {
-    // Deleting a jet simply frees its pressure cost.
+  private refundPower(_presetId: PresetId): void {
+    // Deleting a tool simply frees its power cost.
   }
 
   private clearJets(refundPressure: boolean): void {
@@ -753,7 +918,7 @@ class PrototypeScene extends Phaser.Scene {
 
     for (let i = this.jets.length - 1; i >= 0; i -= 1) {
       const jet = this.jets[i];
-      if (!isValidJetMount(jet)) {
+      if (!isValidPlacedJet(jet)) {
         this.removeJetAt(i, true);
       }
     }
@@ -774,27 +939,23 @@ class PrototypeScene extends Phaser.Scene {
   }
 
   private stepSimulation(dt: number): void {
-    if (!this.flowActive) {
-      this.tuber.velocity = { x: 0, y: 0 };
-      this.lastForce = { x: 0, y: 0 };
-      return;
-    }
-
     if (!isTuberFullyInWater(this.tuber.position)) {
       this.tuber.velocity = { x: 0, y: 0 };
       this.lastForce = { x: 0, y: 0 };
       return;
     }
 
-    const force = this.jets.reduce(
-      (total, jet) => {
-        const jetForce = getJetForce(jet, this.tuber.position, this.tuber.velocity);
-        total.x += jetForce.x;
-        total.y += jetForce.y;
-        return total;
-      },
-      { x: 0, y: 0 }
-    );
+    const force = this.flowActive
+      ? this.jets.reduce(
+          (total, jet) => {
+            const jetForce = getJetForce(jet, this.tuber.position, this.tuber.velocity);
+            total.x += jetForce.x;
+            total.y += jetForce.y;
+            return total;
+          },
+          { x: 0, y: 0 }
+        )
+      : { x: 0, y: 0 };
 
     this.lastForce = force;
     this.tuber.velocity.x += force.x * dt;
@@ -843,7 +1004,10 @@ class PrototypeScene extends Phaser.Scene {
         return;
       }
 
-      this.tuber.velocity[axis] *= -controls.bounciness;
+      const wallDirection = value > this.tuber.position[axis] ? 1 : -1;
+      const awayDirection = -wallDirection;
+      const reboundSpeed = Math.max(Math.abs(this.tuber.velocity[axis]) * controls.bounciness, minimumWallBounceSpeed);
+      this.tuber.velocity[axis] = awayDirection * reboundSpeed;
       return;
     }
 
@@ -918,60 +1082,57 @@ class PrototypeScene extends Phaser.Scene {
 
   private drawBackdrop(): void {
     this.graphics.fillStyle(0x11131a, 1);
-    this.graphics.fillRect(origin.x, origin.y, boardPixelWidth, boardPixelHeight);
+    this.graphics.fillRect(origin.x, origin.y, boardColumns() * cellSize, boardRows() * cellSize);
   }
 
   private drawInventory(): void {
     const panel = inventoryPanelRect();
-    const usedPressure = pressureUsed(this.jets);
+    const usedPower = powerUsed(this.jets);
     this.graphics.fillStyle(0x151823, 1);
     this.graphics.fillRoundedRect(panel.left, panel.top, panel.width, panel.height, 16);
     this.graphics.lineStyle(1, 0x33384e, 1);
     this.graphics.strokeRoundedRect(panel.left, panel.top, panel.width, panel.height, 16);
 
-    this.inventoryTitleText?.setPosition(panel.left + 14, panel.top + 12).setText(`Jet stock · Pressure ${usedPressure}/${pressureBudget}`);
+    this.inventoryTitleText?.setPosition(panel.left + 14, panel.top + 12).setText(`Jet stock · Power ${usedPower}/${powerBudget}`);
     this.inventoryHintText?.setPosition(panel.left + 14, panel.top + panel.height - 24);
 
-    const pressureBar = {
+    const powerBar = {
       left: panel.left + 14,
       top: panel.top + 40,
       width: panel.width - 28,
       height: 10
     };
     this.graphics.fillStyle(0x0b0d14, 0.95);
-    this.graphics.fillRoundedRect(pressureBar.left, pressureBar.top, pressureBar.width, pressureBar.height, 5);
+    this.graphics.fillRoundedRect(powerBar.left, powerBar.top, powerBar.width, powerBar.height, 5);
     this.graphics.fillStyle(0x7cecff, 0.9);
     this.graphics.fillRoundedRect(
-      pressureBar.left,
-      pressureBar.top,
-      pressureBar.width * clamp(usedPressure / pressureBudget, 0, 1),
-      pressureBar.height,
+      powerBar.left,
+      powerBar.top,
+      powerBar.width * clamp(usedPower / powerBudget, 0, 1),
+      powerBar.height,
       5
     );
     this.graphics.lineStyle(1, 0x7cecff, 0.65);
-    this.graphics.strokeRoundedRect(pressureBar.left, pressureBar.top, pressureBar.width, pressureBar.height, 5);
+    this.graphics.strokeRoundedRect(powerBar.left, powerBar.top, powerBar.width, powerBar.height, 5);
 
     for (const presetId of presetIds) {
       const preset = jetPresets[presetId];
       const rect = inventorySlotRect(presetId);
       const selected = this.selectedPreset === presetId;
       const hovered = this.hoverInventoryPreset === presetId;
-      const canAfford = usedPressure + preset.pressureCost <= pressureBudget || selected;
+      const canAfford = usedPower + jetCost(presetId) <= powerBudget || selected;
 
       this.graphics.fillStyle(selected ? 0x222638 : hovered ? 0x1b2131 : 0x10131d, 1);
       this.graphics.fillRoundedRect(rect.left, rect.top, rect.width, rect.height, 12);
       this.graphics.lineStyle(selected ? 3 : 1, selected ? preset.color : hovered ? 0x7cecff : 0x353b51, 1);
       this.graphics.strokeRoundedRect(rect.left, rect.top, rect.width, rect.height, 12);
 
-      this.graphics.fillStyle(preset.color, canAfford ? 0.95 : 0.3);
-      this.graphics.fillCircle(rect.left + 27, rect.top + 28, 16);
-      this.graphics.lineStyle(2, 0xffffff, canAfford ? 0.75 : 0.25);
-      this.graphics.strokeCircle(rect.left + 27, rect.top + 28, 16);
+      drawPowerMeter(this.graphics, rect.left + 27, rect.top + 28, 16, preset.powerLevel, preset.color, canAfford ? 0.95 : 0.3);
 
       this.inventoryTexts
         .get(presetId)
         ?.setText(
-          `${preset.label}\n${preset.description} · Cost ${preset.pressureCost}`
+          `${preset.label}\n${preset.description} · Cost ${jetCost(presetId)}`
         )
         .setAlpha(canAfford ? 1 : 0.58);
     }
@@ -1064,6 +1225,10 @@ class PrototypeScene extends Phaser.Scene {
   }
 
   private drawJetMountHints(): void {
+    if (isBombPreset(this.selectedPreset)) {
+      return;
+    }
+
     for (const mount of allJetMounts()) {
       const edge = jetEdgePoint(mount);
       const pos = gridToScreen(edge.x, edge.y);
@@ -1088,13 +1253,31 @@ class PrototypeScene extends Phaser.Scene {
   }
 
   private drawJetPlacementPreview(): void {
+    if (this.hoverBombCell) {
+      const ghostJet = makeBomb(this.hoverBombCell, this.selectedPreset);
+      const canPlace = powerUsed(this.jets) + jetCost(this.selectedPreset) <= powerBudget;
+      const color = canPlace ? jetPresets[this.selectedPreset].color : 0xff5c7a;
+
+      this.drawJetStream(ghostJet, {
+        color,
+        alphaScale: canPlace ? 0.55 : 0.22,
+        widthScale: 0.85
+      });
+
+      const pos = bombCenterPoint(ghostJet);
+      const screenPos = gridToScreen(pos.x, pos.y);
+      this.graphics.lineStyle(2, color, 0.95);
+      this.graphics.strokeCircle(screenPos.x, screenPos.y, 16);
+      return;
+    }
+
     if (!this.hoverMount) {
       return;
     }
 
     const selected = this.findJetAtMount(this.hoverMount);
     const ghostJet = selected ?? makePreviewJet(this.hoverMount, this.selectedPreset);
-    const canPlace = selected || pressureUsed(this.jets) + jetPresets[this.selectedPreset].pressureCost <= pressureBudget;
+    const canPlace = selected || powerUsed(this.jets) + jetCost(this.selectedPreset) <= powerBudget;
     const color = selected ? 0xffc3e8 : canPlace ? jetPresets[this.selectedPreset].color : 0xff5c7a;
 
     this.drawJetStream(ghostJet, {
@@ -1111,19 +1294,22 @@ class PrototypeScene extends Phaser.Scene {
 
   private drawJets(): void {
     for (const jet of this.jets) {
-      const center = gridToScreen(jetEdgePoint(jet).x, jetEdgePoint(jet).y);
+      const anchor = placedJetAnchorPoint(jet);
+      const center = gridToScreen(anchor.x, anchor.y);
       const powerRatio = clamp(jet.power / Math.max(jet.basePower, 0.001), 0, 1);
       const preset = jetPresets[jet.presetId];
 
-      this.graphics.fillStyle(preset.color, 0.35 + powerRatio * 0.65);
-      this.graphics.fillCircle(center.x, center.y, 5 + powerRatio * 7);
+      drawPowerMeter(this.graphics, center.x, center.y, 7 + powerRatio * 7, preset.powerLevel, preset.color, 0.35 + powerRatio * 0.65);
 
       this.drawJetStream(jet, { color: preset.color });
 
-      const dir = jetDirection(jet);
-      const arrowEnd = gridToScreen(jetEdgePoint(jet).x + dir.x * 0.45, jetEdgePoint(jet).y + dir.y * 0.45);
-      this.graphics.lineStyle(2, 0xffffff, 0.45 + powerRatio * 0.4);
-      this.graphics.lineBetween(center.x, center.y, arrowEnd.x, arrowEnd.y);
+      if (!isBombPreset(jet.presetId)) {
+        const dir = jetDirection(jet);
+        const edge = jetEdgePoint(jet);
+        const arrowEnd = gridToScreen(edge.x + dir.x * 0.45, edge.y + dir.y * 0.45);
+        this.graphics.lineStyle(2, 0xffffff, 0.45 + powerRatio * 0.4);
+        this.graphics.lineBetween(center.x, center.y, arrowEnd.x, arrowEnd.y);
+      }
 
       if (this.selectedJet === jet) {
         this.graphics.lineStyle(4, 0xffc3e8, 0.95);
@@ -1144,6 +1330,20 @@ class PrototypeScene extends Phaser.Scene {
     const color = options.color ?? 0x7cecff;
     const alphaScale = options.alphaScale ?? 1;
     const widthScale = options.widthScale ?? 1;
+    const preset = jetPresets[jet.presetId];
+
+    if (preset.behavior === 'bomb') {
+      const impact = bombCenterPoint(jet);
+      const impactScreen = gridToScreen(impact.x, impact.y);
+      const rippleRadius = bombRippleRadius(preset) * cellSize * widthRatio;
+
+      for (let i = 1; i <= preset.powerLevel; i += 1) {
+        this.graphics.lineStyle(Math.max(2, 3 * widthScale), color, 0.42 * alphaScale * powerRatio * (1 - (i - 1) / 5));
+        this.graphics.strokeCircle(impactScreen.x, impactScreen.y, rippleRadius * (i / preset.powerLevel));
+      }
+      return;
+    }
+
     const edge = jetEdgePoint(jet);
 
     for (let i = 0; i < segmentCount; i += 1) {
@@ -1188,6 +1388,16 @@ class PrototypeScene extends Phaser.Scene {
     drawVectorArrow(this.graphics, tuberPos, this.lastForce, 10, 0xffffff, 0.85);
 
     for (const jet of this.jets) {
+      if (isBombPreset(jet.presetId)) {
+        const center = bombCenterPoint(jet);
+        const start = gridToScreen(center.x, center.y);
+        const rippleRadius = bombRippleRadius(jetPresets[jet.presetId]) * cellSize;
+
+        this.graphics.lineStyle(1, 0xffffff, this.selectedJet === jet ? 0.45 : 0.18);
+        this.graphics.strokeCircle(start.x, start.y, rippleRadius);
+        continue;
+      }
+
       const edge = jetEdgePoint(jet);
       const start = gridToScreen(edge.x, edge.y);
       const dir = jetDirection(jet);
@@ -1208,7 +1418,8 @@ class PrototypeScene extends Phaser.Scene {
     let best: { jet: Jet; distance: number } | null = null;
 
     for (const jet of this.jets) {
-      const edge = gridToScreen(jetEdgePoint(jet).x, jetEdgePoint(jet).y);
+      const anchor = placedJetAnchorPoint(jet);
+      const edge = gridToScreen(anchor.x, anchor.y);
       const distance = Math.hypot(screenX - edge.x, screenY - edge.y);
 
       if (distance <= 22 && (!best || distance < best.distance)) {
@@ -1251,8 +1462,15 @@ class PrototypeScene extends Phaser.Scene {
 
   private cycleJetAim(jet: Jet): void {
     const currentIndex = aimOffsets.findIndex((offset) => Math.abs(offset - jet.angleOffset) < 0.001);
-    const nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % aimOffsets.length;
-    jet.angleOffset = aimOffsets[nextIndex];
+    const startIndex = currentIndex < 0 ? 0 : currentIndex;
+
+    for (let step = 1; step <= aimOffsets.length; step += 1) {
+      const nextOffset = aimOffsets[(startIndex + step) % aimOffsets.length];
+      if (powerUsedWithAim(this.jets, jet, nextOffset) <= powerBudget) {
+        jet.angleOffset = nextOffset;
+        return;
+      }
+    }
   }
 
   private deleteSelectedJet(): void {
@@ -1271,15 +1489,15 @@ class PrototypeScene extends Phaser.Scene {
     }
   }
 
-  private removeJetAt(index: number, refundPressure: boolean): void {
+  private removeJetAt(index: number, refundPower: boolean): void {
     const jet = this.jets[index];
 
     if (!jet) {
       return;
     }
 
-    if (refundPressure) {
-      this.refundPressure(jet.presetId);
+    if (refundPower) {
+      this.refundPower(jet.presetId);
     }
 
     if (this.selectedJet === jet) {
@@ -1302,7 +1520,7 @@ class PrototypeScene extends Phaser.Scene {
   private updateReadout(): void {
     if (selectedJetStatus) {
       selectedJetStatus.textContent = this.selectedJet
-        ? `${jetPresets[this.selectedJet.presetId].label} at ${this.selectedJet.wallX}, ${this.selectedJet.wallY} firing ${this.selectedJet.direction} · aim ${radiansToDegrees(this.selectedJet.angleOffset)}° · cost ${jetPresets[this.selectedJet.presetId].pressureCost}`
+        ? `${jetPresets[this.selectedJet.presetId].label} at ${this.selectedJet.wallX}, ${this.selectedJet.wallY}${isBombPreset(this.selectedJet.presetId) ? '' : ` firing ${this.selectedJet.direction} · aim ${radiansToDegrees(this.selectedJet.angleOffset)}°`} · cost ${placedJetCost(this.selectedJet)}`
         : 'No jet selected.';
     }
 
@@ -1314,12 +1532,12 @@ class PrototypeScene extends Phaser.Scene {
     const speed = Math.hypot(this.tuber.velocity.x, this.tuber.velocity.y);
     const force = Math.hypot(this.lastForce.x, this.lastForce.y);
     const strongestJet = this.jets.reduce((max, jet) => Math.max(max, jet.power), 0);
-    const usedPressure = pressureUsed(this.jets);
+    const usedPower = powerUsed(this.jets);
     const waterTiles = countWaterTiles();
     const wallTiles = countWallTiles();
     const rowShape = rowWidths.slice(0, controls.gridRows).join(', ');
     const inventoryShape = presetIds
-      .map((presetId) => `${jetPresets[presetId].shortLabel}:${jetPresets[presetId].pressureCost}`)
+      .map((presetId) => `${jetPresets[presetId].shortLabel}:${jetCost(presetId)}`)
       .join(' ');
 
     readout.innerHTML = `
@@ -1339,10 +1557,10 @@ class PrototypeScene extends Phaser.Scene {
       <span>Bounciness: ${controls.bounciness.toFixed(2)}</span>
       <span>Jet mounts: ${allJetMounts().length}</span>
       <span>Jets: ${this.jets.length}</span>
-      <span>Pressure: ${usedPressure}/${pressureBudget} · costs ${inventoryShape}</span>
+      <span>Power: ${usedPower}/${powerBudget} · costs ${inventoryShape}</span>
       <span>Action: ${selectedActionMode}</span>
       <span>Selected jet type: ${jetPresets[this.selectedPreset].label}</span>
-      <span>Selected jet: ${this.selectedJet ? `${this.selectedJet.wallX}, ${this.selectedJet.wallY}, ${this.selectedJet.direction}, ${radiansToDegrees(this.selectedJet.angleOffset)}°` : 'none'}</span>
+      <span>Selected jet: ${this.selectedJet ? `${this.selectedJet.wallX}, ${this.selectedJet.wallY}${isBombPreset(this.selectedJet.presetId) ? ', bomb' : `, ${this.selectedJet.direction}, ${radiansToDegrees(this.selectedJet.angleOffset)}°`}` : 'none'}</span>
       <span>Jet cutoff: range ≤ ${jetRetireRangeCells.toFixed(1)} or visual energy ≤ ${jetRetireVisualEnergy.toFixed(2)}</span>
       <span>Strongest jet: ${strongestJet.toFixed(2)}</span>
     `;
@@ -1370,6 +1588,10 @@ function makeJet(mount: JetMount, presetId: PresetId): Jet {
   };
 }
 
+function makeBomb(cell: Cell, presetId: PresetId): Jet {
+  return makeJet({ wallX: cell.x, wallY: cell.y, direction: 'N' }, presetId);
+}
+
 function makePreviewJet(mount: JetMount, presetId: PresetId): Jet {
   const preset = jetPresets[presetId];
 
@@ -1392,6 +1614,26 @@ function makePreviewJet(mount: JetMount, presetId: PresetId): Jet {
 }
 
 function getJetForce(jet: Jet, point: Vec2, velocity: Vec2): Vec2 {
+  const preset = jetPresets[jet.presetId];
+
+  if (preset.behavior === 'bomb') {
+    const impact = bombCenterPoint(jet);
+    const away = { x: point.x - impact.x, y: point.y - impact.y };
+    const distance = Math.hypot(away.x, away.y);
+    const rippleRadius = bombRippleRadius(preset);
+
+    if (distance < 0.001 || distance > rippleRadius) {
+      return { x: 0, y: 0 };
+    }
+
+    const falloff = Math.max(0, 1 - distance / rippleRadius);
+    const strength = jet.power * falloff;
+    return {
+      x: (away.x / distance) * strength,
+      y: (away.y / distance) * strength
+    };
+  }
+
   const dir = jetDirection(jet);
   const originPoint = jetEdgePoint(jet);
   const relative = { x: point.x - originPoint.x, y: point.y - originPoint.y };
@@ -1404,37 +1646,49 @@ function getJetForce(jet: Jet, point: Vec2, velocity: Vec2): Vec2 {
 
   const falloff = Math.max(0, 1 - forward / Math.max(jet.range, 0.001));
   const strength = jet.power * falloff;
-  const preset = jetPresets[jet.presetId];
-
-  if (preset.behavior === 'spin') {
-    const tangent = { x: -dir.y, y: dir.x };
-    const sideSign = Math.sign(relative.x * -dir.y + relative.y * dir.x) || 1;
-    return {
-      x: dir.x * strength * 0.25 + tangent.x * strength * 0.85 * sideSign,
-      y: dir.y * strength * 0.25 + tangent.y * strength * 0.85 * sideSign
-    };
-  }
-
-  if (preset.behavior === 'brake') {
-    const speed = Math.hypot(velocity.x, velocity.y);
-    if (speed < 0.03) {
-      return { x: 0, y: 0 };
-    }
-
-    return {
-      x: -(velocity.x / speed) * strength,
-      y: -(velocity.y / speed) * strength
-    };
-  }
+  const launchMultiplier = preset.behavior === 'bouncer' ? 1.35 : 1;
 
   return {
-    x: dir.x * strength,
-    y: dir.y * strength
+    x: dir.x * strength * launchMultiplier,
+    y: dir.y * strength * launchMultiplier
   };
 }
 
-function pressureUsed(jets: readonly Jet[]): number {
-  return jets.reduce((total, jet) => total + jetPresets[jet.presetId].pressureCost, 0);
+function jetCost(presetId: PresetId, angleOffset = 0): number {
+  const preset = jetPresets[presetId];
+  const angledCost = preset.behavior === 'jet' && Math.abs(angleOffset) > 0.001 ? anglePowerSurcharge : 0;
+  return preset.baseCost + angledCost;
+}
+
+function placedJetCost(jet: Pick<Jet, 'presetId' | 'angleOffset'>): number {
+  return jetCost(jet.presetId, jet.angleOffset);
+}
+
+function powerUsed(jets: readonly Jet[]): number {
+  return jets.reduce((total, jet) => total + placedJetCost(jet), 0);
+}
+
+function powerUsedWithAim(jets: readonly Jet[], targetJet: Jet, nextOffset: number): number {
+  return jets.reduce((total, jet) => total + (jet === targetJet ? jetCost(jet.presetId, nextOffset) : placedJetCost(jet)), 0);
+}
+
+function bombCenterPoint(jet: Pick<Jet, 'wallX' | 'wallY'>): Vec2 {
+  return {
+    x: jet.wallX + 0.5,
+    y: jet.wallY + 0.5
+  };
+}
+
+function bombRippleRadius(preset: Pick<JetPreset, 'powerLevel'>): number {
+  return 0.6 + preset.powerLevel * 0.35;
+}
+
+function placedJetAnchorPoint(jet: Jet): Vec2 {
+  return isBombPreset(jet.presetId) ? bombCenterPoint(jet) : jetEdgePoint(jet);
+}
+
+function isBombPreset(presetId: PresetId): boolean {
+  return jetPresets[presetId].behavior === 'bomb';
 }
 
 function jetDirection(jet: Pick<Jet, 'direction' | 'angleOffset'>): Vec2 {
@@ -1539,14 +1793,20 @@ function isInsideBoard(x: number, y: number): boolean {
 
 function createInventory(): Record<PresetId, InventorySlot> {
   return {
-    push: {},
-    spin: {},
-    brake: {}
+    jet1: {},
+    jet2: {},
+    jet3: {},
+    jet4: {},
+    bomb1: {},
+    bomb2: {},
+    bomb3: {},
+    bomb4: {},
+    bouncer: {}
   };
 }
 
 function resetInventory(_inventory: Record<PresetId, InventorySlot>): void {
-  // Pressure is derived from placed jets, so clearing jets resets budget use.
+  // Power is derived from placed tools, so clearing jets resets budget use.
 }
 
 function syncShapeExtentsFromMask(mask: Uint8Array): void {
@@ -1853,7 +2113,7 @@ function seededLevelName(seed: number): string {
 function inventoryPanelRect(): Rect {
   return {
     left: origin.x,
-    top: origin.y + boardPixelHeight + inventoryGap,
+    top: origin.y + boardRows() * cellSize + inventoryGap,
     width: boardPixelWidth,
     height: inventoryHeight
   };
@@ -1862,12 +2122,12 @@ function inventoryPanelRect(): Rect {
 function inventorySlotRect(presetId: PresetId): Rect {
   const panel = inventoryPanelRect();
   const index = presetIds.indexOf(presetId);
-  const columns = 2;
+  const columns = 3;
   const slotHeight = 58;
   const gap = 10;
   const column = index % columns;
   const row = Math.floor(index / columns);
-  const slotWidth = (panel.width - 24 - gap) / columns;
+  const slotWidth = (panel.width - 24 - gap * (columns - 1)) / columns;
 
   return {
     left: panel.left + 12 + column * (slotWidth + gap),
@@ -1905,6 +2165,10 @@ function isValidJetMount(mount: JetMount): boolean {
   return isWallCell(mount.wallX, mount.wallY) && isWaterCell(mount.wallX + vector.x, mount.wallY + vector.y);
 }
 
+function isValidPlacedJet(jet: Jet): boolean {
+  return isBombPreset(jet.presetId) ? isWaterCell(jet.wallX, jet.wallY) : isValidJetMount(jet);
+}
+
 function allJetMounts(): JetMount[] {
   const mounts: JetMount[] = [];
 
@@ -1921,6 +2185,12 @@ function allJetMounts(): JetMount[] {
   }
 
   return mounts;
+}
+
+function findWaterCellAt(screenX: number, screenY: number): Cell | null {
+  const gridPos = screenToGrid(screenX, screenY);
+  const cell = { x: Math.floor(gridPos.x), y: Math.floor(gridPos.y) };
+  return isWaterCell(cell.x, cell.y) ? cell : null;
 }
 
 function findJetMountAt(screenX: number, screenY: number): JetMount | null {
@@ -2209,6 +2479,33 @@ function drawTinyNumber(graphics: Phaser.GameObjects.Graphics, value: number, x:
     const pipX = startX + (i % columns) * spacing;
     const pipY = startY + Math.floor(i / columns) * spacing;
     graphics.fillCircle(pipX, pipY, 1.4);
+  }
+}
+
+function drawPowerMeter(
+  graphics: Phaser.GameObjects.Graphics,
+  x: number,
+  y: number,
+  radius: number,
+  powerLevel: number,
+  color: number,
+  alpha: number
+): void {
+  graphics.fillStyle(color, alpha * 0.28);
+  graphics.fillCircle(x, y, radius - 4);
+  graphics.lineStyle(2, 0xffffff, alpha * 0.25);
+  graphics.strokeCircle(x, y, radius);
+
+  const segmentGap = 0.08;
+  const startAngle = -Math.PI / 2;
+
+  for (let i = 0; i < 4; i += 1) {
+    const segmentStart = startAngle + i * (Math.PI / 2) + segmentGap;
+    const segmentEnd = startAngle + (i + 1) * (Math.PI / 2) - segmentGap;
+    graphics.lineStyle(4, color, i < powerLevel ? alpha : alpha * 0.18);
+    graphics.beginPath();
+    graphics.arc(x, y, radius, segmentStart, segmentEnd, false);
+    graphics.strokePath();
   }
 }
 
