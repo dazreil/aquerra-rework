@@ -92,6 +92,7 @@ The visible side panel is intentionally simple:
 - action section:
   - Add jet
   - Remove jet
+  - Start/Pause flow
 - procedural basin section:
   - seed input
   - Generate level
@@ -110,6 +111,8 @@ The old sliders, tuning panels, selected-jet editor, and basin-size controls are
 - Player spends from a shared 10-pressure budget instead of per-type charges.
 - Player uses Add jet to place jets on valid wall/water edges.
 - In Add mode, tapping an existing jet cycles its aim through -45, -22, 0, 22, and 45 degrees.
+- Flow starts paused so the player can place and aim jets before the tuber moves.
+- Pressing Start flow runs the simulation; adding, removing, or re-aiming a jet pauses flow again.
 - Player uses Remove jet to prevent accidental placement while deleting jets.
 - No jets are auto-placed at the start.
 - In Remove mode, clicking an existing jet deletes it and frees its pressure cost.

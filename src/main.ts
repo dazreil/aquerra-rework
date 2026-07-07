@@ -494,6 +494,7 @@ class PrototypeScene extends Phaser.Scene {
   private goalReached = false;
   private currentSeed = 1337;
   private winQueued = false;
+  private flowActive = false;
 
   constructor() {
     super('PrototypeScene');
@@ -540,6 +541,7 @@ class PrototypeScene extends Phaser.Scene {
 
         this.cycleJetAim(hitJet);
         this.selectedJet = hitJet;
+        this.setFlowActive(false);
         return;
       }
 
@@ -570,9 +572,13 @@ class PrototypeScene extends Phaser.Scene {
         const jet = makeJet(mount, this.selectedPreset);
         this.jets.push(jet);
         this.selectedJet = jet;
+        this.setFlowActive(false);
       }
     });
 
+    document.querySelector<HTMLButtonElement>('#toggleFlow')?.addEventListener('click', () => {
+      this.setFlowActive(!this.flowActive);
+    });
     document.querySelector('#resetTuber')?.addEventListener('click', () => this.resetTuber());
     document.querySelector('#clearJets')?.addEventListener('click', () => {
       this.clearJets(true);
@@ -594,7 +600,9 @@ class PrototypeScene extends Phaser.Scene {
     normalizeShape();
     this.updateInventory();
     this.keepEntitiesInsideShape();
-    this.decayJets(dt);
+    if (this.flowActive) {
+      this.decayJets(dt);
+    }
     this.stepSimulation(dt);
     this.draw();
     this.updateReadout();
@@ -659,6 +667,7 @@ class PrototypeScene extends Phaser.Scene {
     this.tuber.velocity = { x: 0, y: 0 };
     this.goal = { x: level.goal.x + 0.5, y: level.goal.y + 0.5 };
     this.goalReached = false;
+    this.setFlowActive(false);
 
     console.info('[Aquerra generator]', level.name, level.stats);
   }
@@ -765,6 +774,12 @@ class PrototypeScene extends Phaser.Scene {
   }
 
   private stepSimulation(dt: number): void {
+    if (!this.flowActive) {
+      this.tuber.velocity = { x: 0, y: 0 };
+      this.lastForce = { x: 0, y: 0 };
+      return;
+    }
+
     if (!isTuberFullyInWater(this.tuber.position)) {
       this.tuber.velocity = { x: 0, y: 0 };
       this.lastForce = { x: 0, y: 0 };
@@ -1252,6 +1267,7 @@ class PrototypeScene extends Phaser.Scene {
     const index = this.jets.indexOf(jet);
     if (index >= 0) {
       this.removeJetAt(index, true);
+      this.setFlowActive(false);
     }
   }
 
@@ -1271,6 +1287,16 @@ class PrototypeScene extends Phaser.Scene {
     }
 
     this.jets.splice(index, 1);
+  }
+
+  private setFlowActive(active: boolean): void {
+    this.flowActive = active;
+    const button = document.querySelector<HTMLButtonElement>('#toggleFlow');
+    if (button) {
+      button.textContent = active ? 'Pause flow' : 'Start flow';
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    }
   }
 
   private updateReadout(): void {
@@ -1309,6 +1335,7 @@ class PrototypeScene extends Phaser.Scene {
       <span>Speed: ${speed.toFixed(2)}</span>
       <span>Force: ${force.toFixed(2)}</span>
       <span>Goal: ${this.goalReached ? 'reached' : `${this.goal.x.toFixed(1)}, ${this.goal.y.toFixed(1)}`}</span>
+      <span>Flow: ${this.flowActive ? 'running' : 'paused'}</span>
       <span>Bounciness: ${controls.bounciness.toFixed(2)}</span>
       <span>Jet mounts: ${allJetMounts().length}</span>
       <span>Jets: ${this.jets.length}</span>
