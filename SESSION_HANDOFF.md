@@ -77,6 +77,7 @@ prototype there when ready, leaving `origin` as the original A/B baseline repo.
 
 ## Important files
 
+- `DESIGN_SPEC.md` — canonical target design direction for the editor/tester, final 3D/isometric game, power economy, run phases, Flow Ghost, bounce feel, visual direction, and clean rebuild architecture.
 - `src/main.ts` — all Phaser rendering, gameplay simulation, procedural generator, inventory, collision, win loop.
 - `src/styles.css` — responsive layout and compact side panel styling.
 - `index.html` — minimal visible UI plus hidden default config inputs.
@@ -112,11 +113,16 @@ The old sliders, tuning panels, selected-jet editor, and basin-size controls are
 - Jet cost equals power level; angled Jet shots cost an additional 2 power.
 - Bomb cost is 3 power per level; Bouncer costs 8 flat.
 - Player uses Add jet to place Jets/Bouncer on valid wall/water edges.
-- Bombs are placed directly on water cells and create a radial ripple from that tile.
+- Bombs are placed directly on water cells and create a radial nudge from that tile when the tuber enters their ripple radius.
 - In Add mode, tapping an existing jet cycles its aim through -45, -22, 0, 22, and 45 degrees.
 - Flow starts paused so the player can place and aim jets before the tuber moves.
 - Pressing Start flow runs jet forces; pausing stops new jet force/decay but lets the tuber coast down under drag.
 - Adding, removing, or re-aiming a jet pauses flow again without hard-stopping existing tuber velocity.
+- Placed tools start dormant and wake only when the tuber enters line of sight:
+  - Jet/Bouncer line of sight is their aimed stream corridor with clear water between tool and tuber.
+  - Bomb line of sight is its visible ripple radius around the water placement.
+  - Once a tool wakes, it fires and decays until it retires.
+- Flow Ghost appears while paused as a fuzzy prediction trail/end echo for the current setup.
 - Player uses Remove jet to prevent accidental placement while deleting jets.
 - No jets are auto-placed at the start.
 - In Remove mode, clicking an existing jet deletes it and frees its power cost.
@@ -171,10 +177,12 @@ Jets:
 - Bombs are water-cell placed and do not need a wall mount
 - base direction points from wall into adjacent water for edge-mounted tools
 - limited-angle aim offsets on placed Jets/Bouncer
+- placed tools have dormant/active state; dormant tools do not apply force or decay
+- editing the setup resets all placed tools to dormant/fresh state
 - shared 12-power budget
 - three behavior types:
   - Jet: straight force; power levels 1-4; Power 4 straight is anchored to the old Push Jet feel
-  - Bomb: radial ripple force away from its water-cell landing point; cost 3 per power level; P4 is tuned to roughly a four-cell-wide ripple with light follow-through; force levels are 2.2/3.6/4.8/5.8
+  - Bomb: radial nudge away from its water-cell landing point; cost 3 per power level; it wakes/affects the tuber inside its ripple radius; force levels are 2.2/3.6/4.8/5.8
   - Bouncer: strong 10-cell launch stream; flat cost 8
 - placed tools show a four-segment circular power marker
 - deleted/expired/invalidated jets refund power by being removed from the board
@@ -186,6 +194,30 @@ Jet retirement:
 - visual energy <= 18%, or
 - stream width <= 0.12 cell
 
+## Rebuild consideration
+
+See `DESIGN_SPEC.md` for the fuller target design. It supersedes older prototype behavior where the current implementation still differs, especially around power being spent on tool activation rather than placement, setup/run/reset phases, and the future clean architecture.
+
+Latest design additions:
+
+- Setup should avoid add/remove mode switching in normal play: select a tool to place it, tap an existing tool to remove it, and aim through direct handles/drag where needed.
+- The long-term structure can include metroidvania-style gating: stronger Jet power levels, larger power cells, tool unlocks, and level-authored Energy Cells can open previously inaccessible routes or support longer levels.
+- Energy Cells should be part of route design and should add/refill usable power during an attempt, eventually becoming visible in Flow Ghost projections.
+
+The current codebase is a useful design lab, but it is accumulating prototype debt. Most gameplay, rendering, UI, generator, inventory, collision, Flow Ghost prediction, and debug behavior still live in `src/main.ts`, and the new Jet/Bomb/Bouncer rules are layered onto older force/jet abstractions.
+
+If the current rules continue to feel promising after playtesting, consider rebuilding the rework version from scratch with cleaner boundaries:
+
+- `GameState` — basin, tuber, tools, goal, power budget, active/dormant state.
+- `ToolRules` — Jet, Bomb, and Bouncer behavior/cost/activation.
+- `Simulation` — deterministic movement, collision, line of sight, decay, win checks; no Phaser dependencies.
+- `Prediction` — Flow Ghost using the same simulation model as real play.
+- `Renderer` — Phaser/canvas drawing only, derived from state.
+- `InputController` — converts taps/clicks into game actions.
+- `LevelGenerator` — procedural basin generation separate from play mechanics.
+
+Goal for a rebuild: keep this prototype as the reference for learned rules, but make real gameplay and Flow Ghost share one deterministic simulation engine. That should reduce tuning friction and avoid carrying the current large-file mechanics sketch into a production foundation.
+
 ## Known issues / likely next work
 
 1. Inventory is still drawn inside Phaser canvas:
@@ -195,6 +227,8 @@ Jet retirement:
 2. Jet rework needs tuning:
    - power costs, stream widths, decay rates, Bomb ripple strength/radius, and Bouncer launch strength are first-pass values
    - next pass should playtest whether Jet/Bomb/Bouncer are distinct and understandable.
+   - triggered line-of-sight chains and Flow Ghost are first-pass implementations and need playtesting for readability.
+   - current implementation still uses explicit Add/Remove mode buttons; target design is tap existing tool to remove during setup.
 
 3. Collision can still be awkward at wall corners:
    - current axis-split movement plus corner-slide is a patch

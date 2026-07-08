@@ -20,6 +20,11 @@ type Cell = {
   y: number;
 };
 
+type GhostPrediction = {
+  path: Vec2[];
+  end: Vec2;
+};
+
 type ShapeButton = {
   type: 'rowWidth' | 'columnHeight';
   index: number;
@@ -35,6 +40,7 @@ type JetMount = {
 type Jet = JetMount & {
   presetId: PresetId;
   angleOffset: number;
+  active: boolean;
   age: number;
   power: number;
   range: number;
@@ -136,6 +142,10 @@ const inventoryGap = 18;
 const inventoryHeight = 300;
 const powerBudget = 12;
 const anglePowerSurcharge = 2;
+const flowGhostStepSeconds = 1 / 30;
+const flowGhostSteps = 110;
+const flowGhostSampleEvery = 8;
+const flowGhostStopSpeed = 0.08;
 const aimStepRadians = Math.PI / 8;
 const aimMaxRadians = Math.PI / 4;
 const aimOffsets = [-aimMaxRadians, -aimStepRadians, 0, aimStepRadians, aimMaxRadians] as const;
@@ -688,12 +698,14 @@ class PrototypeScene extends Phaser.Scene {
 
         if (isBombPreset(hitJet.presetId)) {
           this.selectedJet = hitJet;
+          this.resetJetsForSetup();
           this.setFlowActive(false);
           return;
         }
 
         this.cycleJetAim(hitJet);
         this.selectedJet = hitJet;
+        this.resetJetsForSetup();
         this.setFlowActive(false);
         return;
       }
@@ -720,6 +732,7 @@ class PrototypeScene extends Phaser.Scene {
         const jet = makeBomb({ x: cellX, y: cellY }, this.selectedPreset);
         this.jets.push(jet);
         this.selectedJet = jet;
+        this.resetJetsForSetup();
         this.setFlowActive(false);
         return;
       }
@@ -737,6 +750,7 @@ class PrototypeScene extends Phaser.Scene {
         const jet = makeJet(mount, this.selectedPreset);
         this.jets.push(jet);
         this.selectedJet = jet;
+        this.resetJetsForSetup();
         this.setFlowActive(false);
       }
     });
@@ -776,6 +790,7 @@ class PrototypeScene extends Phaser.Scene {
   private resetTuber(): void {
     this.tuber.position = centeredStartPosition();
     this.tuber.velocity = { x: 0, y: 0 };
+    this.resetJetsForSetup();
   }
 
   private placeTuber(cellX: number, cellY: number): void {
@@ -927,6 +942,10 @@ class PrototypeScene extends Phaser.Scene {
   private decayJets(dt: number): void {
     for (let i = this.jets.length - 1; i >= 0; i -= 1) {
       const jet = this.jets[i];
+      if (!jet.active) {
+        continue;
+      }
+
       jet.age += dt;
       jet.power = jet.basePower * easedDecay(jet.age, jet.powerDecay, jet.decayEase);
       jet.range = jet.baseRange * easedDecay(jet.age, jet.rangeDecay, jet.decayEase);
@@ -945,9 +964,17 @@ class PrototypeScene extends Phaser.Scene {
       return;
     }
 
+    if (this.flowActive) {
+      activateVisibleJets(this.jets, this.tuber.position);
+    }
+
     const force = this.flowActive
       ? this.jets.reduce(
           (total, jet) => {
+            if (!jet.active) {
+              return total;
+            }
+
             const jetForce = getJetForce(jet, this.tuber.position, this.tuber.velocity);
             total.x += jetForce.x;
             total.y += jetForce.y;
@@ -1076,6 +1103,7 @@ class PrototypeScene extends Phaser.Scene {
     this.drawGoal();
     this.drawJetPlacementPreview();
     this.drawJets();
+    this.drawFlowGhost();
     this.drawTuber();
     this.drawDebugOverlay();
   }
@@ -1298,16 +1326,25 @@ class PrototypeScene extends Phaser.Scene {
       const center = gridToScreen(anchor.x, anchor.y);
       const powerRatio = clamp(jet.power / Math.max(jet.basePower, 0.001), 0, 1);
       const preset = jetPresets[jet.presetId];
+      const activityAlpha = jet.active ? 1 : 0.28;
 
-      drawPowerMeter(this.graphics, center.x, center.y, 7 + powerRatio * 7, preset.powerLevel, preset.color, 0.35 + powerRatio * 0.65);
+      drawPowerMeter(
+        this.graphics,
+        center.x,
+        center.y,
+        7 + powerRatio * 7,
+        preset.powerLevel,
+        preset.color,
+        (0.35 + powerRatio * 0.65) * activityAlpha
+      );
 
-      this.drawJetStream(jet, { color: preset.color });
+      this.drawJetStream(jet, { color: preset.color, alphaScale: jet.active ? 1 : 0.22 });
 
       if (!isBombPreset(jet.presetId)) {
         const dir = jetDirection(jet);
         const edge = jetEdgePoint(jet);
         const arrowEnd = gridToScreen(edge.x + dir.x * 0.45, edge.y + dir.y * 0.45);
-        this.graphics.lineStyle(2, 0xffffff, 0.45 + powerRatio * 0.4);
+        this.graphics.lineStyle(2, 0xffffff, (0.45 + powerRatio * 0.4) * activityAlpha);
         this.graphics.lineBetween(center.x, center.y, arrowEnd.x, arrowEnd.y);
       }
 
@@ -1354,6 +1391,43 @@ class PrototypeScene extends Phaser.Scene {
 
       this.graphics.lineStyle(Math.max(2, jet.streamWidth * 8 * widthScale * widthRatio * (1 - t)), color, alpha);
       this.graphics.lineBetween(start.x, start.y, end.x, end.y);
+    }
+  }
+
+  private drawFlowGhost(): void {
+    if (this.flowActive || this.jets.length === 0 || !isTuberFullyInWater(this.tuber.position)) {
+      return;
+    }
+
+    const prediction = predictFlowGhost(this.tuber.position, this.tuber.velocity, this.jets);
+    if (prediction.path.length < 2) {
+      return;
+    }
+
+    for (let i = 1; i < prediction.path.length; i += 1) {
+      const previous = gridToScreen(prediction.path[i - 1].x, prediction.path[i - 1].y);
+      const current = gridToScreen(prediction.path[i].x, prediction.path[i].y);
+      const alpha = 0.08 + (i / prediction.path.length) * 0.16;
+
+      this.graphics.lineStyle(3, 0xdff8ff, alpha);
+      this.graphics.lineBetween(previous.x, previous.y, current.x, current.y);
+      this.graphics.fillStyle(0xdff8ff, alpha + 0.04);
+      this.graphics.fillCircle(current.x, current.y, 2.5);
+    }
+
+    const end = gridToScreen(prediction.end.x, prediction.end.y);
+    const wobble = Math.sin(this.time.now / 360) * 3;
+    const echoes = [
+      { x: -5 + wobble, y: 3, alpha: 0.12, radius: 15 },
+      { x: 5, y: -4 - wobble, alpha: 0.1, radius: 13 },
+      { x: 0, y: 0, alpha: 0.22, radius: 17 }
+    ];
+
+    for (const echo of echoes) {
+      this.graphics.lineStyle(3, 0xdff8ff, echo.alpha);
+      this.graphics.strokeCircle(end.x + echo.x, end.y + echo.y, echo.radius);
+      this.graphics.fillStyle(0xdff8ff, echo.alpha * 0.45);
+      this.graphics.fillCircle(end.x + echo.x, end.y + echo.y, Math.max(6, echo.radius - 7));
     }
   }
 
@@ -1455,6 +1529,7 @@ class PrototypeScene extends Phaser.Scene {
 
   private restartJet(jet: Jet): void {
     jet.age = 0;
+    jet.active = false;
     jet.power = jet.basePower;
     jet.range = jet.baseRange;
     jet.streamWidth = jet.baseStreamWidth;
@@ -1485,6 +1560,7 @@ class PrototypeScene extends Phaser.Scene {
     const index = this.jets.indexOf(jet);
     if (index >= 0) {
       this.removeJetAt(index, true);
+      this.resetJetsForSetup();
       this.setFlowActive(false);
     }
   }
@@ -1507,6 +1583,13 @@ class PrototypeScene extends Phaser.Scene {
     this.jets.splice(index, 1);
   }
 
+  private resetJetsForSetup(): void {
+    for (const jet of this.jets) {
+      this.restartJet(jet);
+      jet.active = false;
+    }
+  }
+
   private setFlowActive(active: boolean): void {
     this.flowActive = active;
     const button = document.querySelector<HTMLButtonElement>('#toggleFlow');
@@ -1520,7 +1603,7 @@ class PrototypeScene extends Phaser.Scene {
   private updateReadout(): void {
     if (selectedJetStatus) {
       selectedJetStatus.textContent = this.selectedJet
-        ? `${jetPresets[this.selectedJet.presetId].label} at ${this.selectedJet.wallX}, ${this.selectedJet.wallY}${isBombPreset(this.selectedJet.presetId) ? '' : ` firing ${this.selectedJet.direction} · aim ${radiansToDegrees(this.selectedJet.angleOffset)}°`} · cost ${placedJetCost(this.selectedJet)}`
+        ? `${jetPresets[this.selectedJet.presetId].label} at ${this.selectedJet.wallX}, ${this.selectedJet.wallY}${isBombPreset(this.selectedJet.presetId) ? '' : ` firing ${this.selectedJet.direction} · aim ${radiansToDegrees(this.selectedJet.angleOffset)}°`} · ${this.selectedJet.active ? 'active' : 'dormant'} · cost ${placedJetCost(this.selectedJet)}`
         : 'No jet selected.';
     }
 
@@ -1532,6 +1615,7 @@ class PrototypeScene extends Phaser.Scene {
     const speed = Math.hypot(this.tuber.velocity.x, this.tuber.velocity.y);
     const force = Math.hypot(this.lastForce.x, this.lastForce.y);
     const strongestJet = this.jets.reduce((max, jet) => Math.max(max, jet.power), 0);
+    const activeJets = this.jets.filter((jet) => jet.active).length;
     const usedPower = powerUsed(this.jets);
     const waterTiles = countWaterTiles();
     const wallTiles = countWallTiles();
@@ -1556,7 +1640,7 @@ class PrototypeScene extends Phaser.Scene {
       <span>Flow: ${this.flowActive ? 'running' : 'paused'}</span>
       <span>Bounciness: ${controls.bounciness.toFixed(2)}</span>
       <span>Jet mounts: ${allJetMounts().length}</span>
-      <span>Jets: ${this.jets.length}</span>
+      <span>Jets: ${this.jets.length} · active ${activeJets}</span>
       <span>Power: ${usedPower}/${powerBudget} · costs ${inventoryShape}</span>
       <span>Action: ${selectedActionMode}</span>
       <span>Selected jet type: ${jetPresets[this.selectedPreset].label}</span>
@@ -1574,6 +1658,7 @@ function makeJet(mount: JetMount, presetId: PresetId): Jet {
     ...mount,
     presetId,
     angleOffset: 0,
+    active: false,
     age: 0,
     power: preset.jetPower,
     range: preset.jetRange,
@@ -1599,6 +1684,7 @@ function makePreviewJet(mount: JetMount, presetId: PresetId): Jet {
     ...mount,
     presetId,
     angleOffset: 0,
+    active: false,
     age: 0,
     power: preset.jetPower,
     range: preset.jetRange,
@@ -1620,12 +1706,12 @@ function getJetForce(jet: Jet, point: Vec2, velocity: Vec2): Vec2 {
     const impact = bombCenterPoint(jet);
     const away = { x: point.x - impact.x, y: point.y - impact.y };
     const distance = Math.hypot(away.x, away.y);
-    const rippleRadius = bombRippleRadius(preset);
 
-    if (distance < 0.001 || distance > rippleRadius) {
+    if (distance < 0.001 || !bombHasLineOfSight(jet, point)) {
       return { x: 0, y: 0 };
     }
 
+    const rippleRadius = bombRippleRadius(preset);
     const falloff = Math.max(0, 1 - distance / rippleRadius);
     const strength = jet.power * falloff;
     return {
@@ -1640,7 +1726,7 @@ function getJetForce(jet: Jet, point: Vec2, velocity: Vec2): Vec2 {
   const forward = relative.x * dir.x + relative.y * dir.y;
   const sideways = Math.abs(relative.x * -dir.y + relative.y * dir.x);
 
-  if (forward < 0 || forward > jet.range || sideways > jet.streamWidth / 2) {
+  if (!jetHasLineOfSight(jet, point) || forward < 0 || forward > jet.range || sideways > jet.streamWidth / 2) {
     return { x: 0, y: 0 };
   }
 
@@ -1652,6 +1738,148 @@ function getJetForce(jet: Jet, point: Vec2, velocity: Vec2): Vec2 {
     x: dir.x * strength * launchMultiplier,
     y: dir.y * strength * launchMultiplier
   };
+}
+
+function predictFlowGhost(startPosition: Vec2, startVelocity: Vec2, jets: readonly Jet[]): GhostPrediction {
+  const ghostJets = jets.map(cloneJetForPrediction);
+  let position = { ...startPosition };
+  let velocity = { ...startVelocity };
+  const path: Vec2[] = [{ ...position }];
+
+  for (let step = 1; step <= flowGhostSteps; step += 1) {
+    if (!isTuberFullyInWater(position)) {
+      position = nearestWaterCellCenter(position);
+      velocity = { x: 0, y: 0 };
+      break;
+    }
+
+    activateVisibleJets(ghostJets, position);
+    decayGhostJets(ghostJets, flowGhostStepSeconds);
+
+    const force = ghostJets.reduce(
+      (total, jet) => {
+        if (!jet.active) {
+          return total;
+        }
+
+        const jetForce = getJetForce(jet, position, velocity);
+        total.x += jetForce.x;
+        total.y += jetForce.y;
+        return total;
+      },
+      { x: 0, y: 0 }
+    );
+
+    velocity.x += force.x * flowGhostStepSeconds;
+    velocity.y += force.y * flowGhostStepSeconds;
+
+    const dragFactor = Math.max(0, 1 - controls.waterDrag * flowGhostStepSeconds);
+    velocity.x *= dragFactor;
+    velocity.y *= dragFactor;
+
+    const nextPosition = {
+      x: position.x + velocity.x * flowGhostStepSeconds,
+      y: position.y + velocity.y * flowGhostStepSeconds
+    };
+
+    ({ position, velocity } = moveGhostAxis(position, velocity, 'x', nextPosition.x));
+    ({ position, velocity } = moveGhostAxis(position, velocity, 'y', nextPosition.y));
+
+    if (step % flowGhostSampleEvery === 0) {
+      path.push({ ...position });
+    }
+
+    const speed = Math.hypot(velocity.x, velocity.y);
+    const anyActive = ghostJets.some((jet) => jet.active);
+    if (step > flowGhostSampleEvery && speed < flowGhostStopSpeed && !anyActive) {
+      break;
+    }
+  }
+
+  path.push({ ...position });
+  return { path, end: position };
+}
+
+function cloneJetForPrediction(jet: Jet): Jet {
+  return { ...jet };
+}
+
+function decayGhostJets(jets: Jet[], dt: number): void {
+  for (let i = jets.length - 1; i >= 0; i -= 1) {
+    const jet = jets[i];
+    if (!jet.active) {
+      continue;
+    }
+
+    jet.age += dt;
+    jet.power = jet.basePower * easedDecay(jet.age, jet.powerDecay, jet.decayEase);
+    jet.range = jet.baseRange * easedDecay(jet.age, jet.rangeDecay, jet.decayEase);
+    jet.streamWidth = jet.baseStreamWidth * easedDecay(jet.age, jet.widthDecay, jet.decayEase);
+
+    if (shouldRetireJet(jet)) {
+      jets.splice(i, 1);
+    }
+  }
+}
+
+function moveGhostAxis(
+  position: Vec2,
+  velocity: Vec2,
+  axis: 'x' | 'y',
+  value: number
+): { position: Vec2; velocity: Vec2 } {
+  const next = { ...position, [axis]: value };
+
+  if (isTuberFullyInWater(next)) {
+    return { position: next, velocity };
+  }
+
+  const wallDirection = value > position[axis] ? 1 : -1;
+  const awayDirection = -wallDirection;
+  const reboundSpeed = Math.max(Math.abs(velocity[axis]) * controls.bounciness, minimumWallBounceSpeed);
+  return {
+    position,
+    velocity: { ...velocity, [axis]: awayDirection * reboundSpeed }
+  };
+}
+
+function activateVisibleJets(jets: Jet[], tuberPosition: Vec2): void {
+  for (const jet of jets) {
+    if (!jet.active && jetHasLineOfSight(jet, tuberPosition)) {
+      jet.active = true;
+    }
+  }
+}
+
+function jetHasLineOfSight(jet: Jet, point: Vec2): boolean {
+  if (isBombPreset(jet.presetId)) {
+    return bombHasLineOfSight(jet, point);
+  }
+
+  const dir = jetDirection(jet);
+  const originPoint = jetEdgePoint(jet);
+  const relative = { x: point.x - originPoint.x, y: point.y - originPoint.y };
+  const forward = relative.x * dir.x + relative.y * dir.y;
+  const sideways = Math.abs(relative.x * -dir.y + relative.y * dir.x);
+
+  if (forward < 0 || forward > jet.range || sideways > jet.streamWidth / 2) {
+    return false;
+  }
+
+  const samples = Math.max(1, Math.ceil(forward / 0.25));
+  for (let i = 1; i <= samples; i += 1) {
+    const t = i / samples;
+    const sample = {
+      x: originPoint.x + (point.x - originPoint.x) * t,
+      y: originPoint.y + (point.y - originPoint.y) * t
+    };
+
+    if (!isWaterPoint(sample)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function jetCost(presetId: PresetId, angleOffset = 0): number {
@@ -1681,6 +1909,13 @@ function bombCenterPoint(jet: Pick<Jet, 'wallX' | 'wallY'>): Vec2 {
 
 function bombRippleRadius(preset: Pick<JetPreset, 'powerLevel'>): number {
   return 0.6 + preset.powerLevel * 0.35;
+}
+
+function bombHasLineOfSight(jet: Pick<Jet, 'wallX' | 'wallY' | 'presetId'>, point: Vec2): boolean {
+  const preset = jetPresets[jet.presetId];
+  const center = bombCenterPoint(jet);
+  const distance = Math.hypot(point.x - center.x, point.y - center.y);
+  return distance <= bombRippleRadius(preset);
 }
 
 function placedJetAnchorPoint(jet: Jet): Vec2 {
